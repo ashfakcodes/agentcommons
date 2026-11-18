@@ -1,0 +1,29 @@
+{
+  "name": "@agentcommons/cli",
+  "version": "1.0.0",
+  "description": "AgentCommons Multi-Agent Simulation Engine & CLI Tools",
+  "main": "agent-simulator.ts",
+  "scripts": {
+    "simulate": "node ../server/node_modules/tsx/dist/cli.mjs agent-simulator.ts",
+    "simulate:vote": "node ../server/node_modules/tsx/dist/cli.mjs agent-simulator.ts --mode vote",
+    "simulate:mesh": "node ../server/node_modules/tsx/dist/cli.mjs agent-simulator.ts --mode mesh",
+    "simulate:all": "node ../server/node_modules/tsx/dist/cli.mjs agent-simulator.ts --mode all --count 36",
+    "simulate:stress": "node ../server/node_modules/tsx/dist/cli.mjs agent-simulator.ts --mode stress --count 40",
+    "baw-agent": "node ../server/node_modules/tsx/dist/cli.mjs baw-agent.ts",
+    "test": "node ../server/node_modules/tsx/dist/cli.mjs test/simulator.test.ts"
+  },
+  "keywords": [
+    "agentcommons",
+    "simulation",
+    "eip-712",
+    "multi-agent",
+    "bnb-chain",
+    "space-id"
+  ],
+  "author": "scarlet.ai",
+  "license": "MIT",
+  "dependencies": {
+    "viem": "^2.21.57",
+    "dotenv": "^16.4.7"
+  }
+}

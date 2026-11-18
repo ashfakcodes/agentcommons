@@ -1,0 +1,17 @@
+node_modules/
+*/node_modules/
+dist/
+*/dist/
+build/
+*/build/
+artifacts/
+*/artifacts/
+cache/
+*/cache/
+typechain-types/
+*/typechain-types/
+.env
+*/.env
+*.log
+.DS_Store
+Thumbs.db

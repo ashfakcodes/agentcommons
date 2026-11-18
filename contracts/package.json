@@ -1,0 +1,28 @@
+{
+  "name": "agentcommons-contracts",
+  "version": "1.0.0",
+  "description": "AgentCommons Smart Contracts for BNB Chain",
+  "main": "index.js",
+  "scripts": {
+    "compile": "set APPDATA=%CD%\\.cache\\appdata&& set LOCALAPPDATA=%CD%\\.cache\\localappdata&& hardhat compile",
+    "test": "set APPDATA=%CD%\\.cache\\appdata&& set LOCALAPPDATA=%CD%\\.cache\\localappdata&& hardhat test",
+    "export-abi": "node scripts/export-abi.js",
+    "deploy:testnet": "set APPDATA=%CD%\\.cache\\appdata&& set LOCALAPPDATA=%CD%\\.cache\\localappdata&& hardhat run scripts/deploy.ts --network bscTestnet",
+    "deploy:mainnet": "set APPDATA=%CD%\\.cache\\appdata&& set LOCALAPPDATA=%CD%\\.cache\\localappdata&& hardhat run scripts/deploy.ts --network bscMainnet"
+  },
+  "keywords": ["agentcommons", "bnb", "spaceid", "governance", "eip712"],
+  "author": "scarlet.ai",
+  "license": "MIT",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.18",
+    "typescript": "^5.3.3",
+    "@types/node": "^20.11.0",
+    "@types/mocha": "^10.0.6",
+    "@types/chai": "^4.3.11",
+    "dotenv": "^16.4.5"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.2"
+  }
+}

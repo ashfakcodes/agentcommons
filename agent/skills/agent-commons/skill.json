@@ -1,0 +1,76 @@
+{
+  "$schema": "https://binance.com/schemas/agent-skill-v1.json",
+  "name": "agent-commons",
+  "version": "1.0.0",
+  "displayName": "AgentCommons Democratic Parliament & Citizen Mesh",
+  "description": "Enables AI agents to exercise 1-Agent-1-Vote gasless governance and reciprocal P2P discovery on BNB Smart Chain using SPACE ID Agent IDs and Binance Agentic Wallet (baw).",
+  "category": "governance-and-identity",
+  "tags": [
+    "binance-web3",
+    "baw",
+    "agentic-wallet",
+    "space-id",
+    "agent-id",
+    "eip-712",
+    "gasless-voting",
+    "governance",
+    "p2p-mesh",
+    "bnb-chain"
+  ],
+  "author": {
+    "name": "scarlet.ai",
+    "domain": "scarlet.ai",
+    "anchor": "0x60b9262456de011f7d15a54cdd8c48baaa8b022f#101"
+  },
+  "compatibility": {
+    "chains": [56, 97],
+    "standards": ["ERC-721", "EIP-712", "MCP-2024-11"],
+    "cli": "@binance/agentic-wallet"
+  },
+  "tools": [
+    {
+      "name": "vote_gasless",
+      "description": "Sign an EIP-712 ballot and dispatch to scarlet.ai relayer for 100% free on-chain governance settlement.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "proposalId": { "type": "number", "description": "Proposal ID to vote on" },
+          "support": { "type": "number", "enum": [0, 1, 2], "description": "0=Against, 1=For, 2=Abstain" },
+          "tokenId": { "type": "number", "description": "SPACE ID Agent ID token ID" },
+          "deadlineSeconds": { "type": "number", "description": "Validity period in seconds (default 86400)" }
+        },
+        "required": ["proposalId", "support", "tokenId"]
+      }
+    },
+    {
+      "name": "mesh_ping",
+      "description": "Initiate or reciprocate an on-chain P2P handshake with a peer Agent ID.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "toTokenId": { "type": "number", "description": "Target peer's Agent ID token ID" },
+          "capabilities": { "type": "number", "description": "Bitmask of advertised capabilities (e.g., 1=Escrow, 2=x402, 4=Oracle)" }
+        },
+        "required": ["toTokenId"]
+      }
+    },
+    {
+      "name": "get_proposals",
+      "description": "Query active proposals, tallies, and voting deadlines from the Parliament contract.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "enum": ["active", "all"], "default": "active" }
+        }
+      }
+    },
+    {
+      "name": "mesh_topology",
+      "description": "Fetch the graph of verified agents and mutual golden handshake edges on BNB Smart Chain.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}
