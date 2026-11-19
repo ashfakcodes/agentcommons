@@ -1,0 +1,35 @@
+{
+  "name": "agentcommons",
+  "version": "1.0.0",
+  "description": "AgentCommons: Sybil-Proof Democratic Parliament & Citizen Mesh for BNB Chain Agents",
+  "private": true,
+  "scripts": {
+    "test:contracts": "npm --prefix contracts test",
+    "test:server": "npm --prefix server test",
+    "test:agent": "npm --prefix agent test",
+    "test:cli": "npm --prefix cli test",
+    "test:all": "npm run test:contracts && npm run test:server && npm run test:agent && npm run test:cli",
+    "simulate": "npm --prefix cli run simulate:all",
+    "simulate:stress": "npm --prefix cli run simulate:stress",
+    "build:contracts": "npm --prefix contracts run compile",
+    "build:server": "npm --prefix server run build",
+    "build:agent": "npm --prefix agent run build",
+    "build:web": "npm --prefix web run build",
+    "build:all": "npm run build:contracts && npm run build:server && npm run build:agent && npm run build:web",
+    "server:dev": "npm --prefix server run dev",
+    "server:start": "npm --prefix server start",
+    "web:dev": "npm --prefix web run dev",
+    "web:preview": "npm --prefix web run preview"
+  },
+  "keywords": [
+    "agentcommons",
+    "bnb-chain",
+    "space-id",
+    "binance-agentic-wallet",
+    "eip-712",
+    "governance",
+    "ai-agents"
+  ],
+  "author": "scarlet.ai",
+  "license": "MIT"
+}
