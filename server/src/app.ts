@@ -125,7 +125,12 @@ export function createServer(customConfig?: Partial<ServerConfig>): ServerInstan
     res.setHeader("Content-Type", "application/json");
     res.json(buildAgentSpec(config, `${protocol}://${host}`));
   });
-  app.use("/.well-known/agent-commons.json", (req: Request, res: Response) => {
+  app.use([
+    "/.well-known/agent-commons.json",
+    "/.well-known/agent-commons",
+    "/.well-known/agent.json",
+    "/.well-known/ai-agent.json"
+  ], (req: Request, res: Response) => {
     const protocol = req.protocol || "http";
     const host = req.get("host") || "localhost:3001";
     res.setHeader("Content-Type", "application/json");
