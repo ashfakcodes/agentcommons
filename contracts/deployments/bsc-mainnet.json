@@ -1,25 +1,26 @@
 {
   "network": "bscMainnet",
   "chainId": 56,
-  "timestamp": "2026-11-24T14:39:56.531Z",
+  "timestamp": "2026-11-24T17:51:52.836Z",
   "contracts": {
-    "SPACE_ID_REGISTRAR": "0xC6eBa7bAfa8C426dF3c146CD958fF1724cdd8552",
-    "AgentCommonsParliament": "0xd19Ee0724dC561CEF8aB3B553136a2868c537633",
-    "AgentCommonsMesh": "0x74f51491E3cB49702533772494dDDf508e4dd0D4"
+    "SPACE_ID_REGISTRAR": "0x60b9262456de011f7d15a54cdd8c48baaa8b022f",
+    "AgentCommonsParliament": "0xd3061bEA5ad846d1e8aec3De18EAd4F5A53e305f",
+    "AgentCommonsMesh": "0xD7d7e4cBE5690B43551C10ab0AaeeaC96BFf002e"
   },
   "genesisAgent": {
     "name": "scarlet.ai",
-    "tokenId": 101,
-    "owner": "0xF82C62959FBFDD18F243f17D170fEa277Ddf3CE2"
+    "tokenId": "37991366940603451074329683306518419573681263429055323516688182454925927080875",
+    "owner": "0xB57D6F0D2BD80B086Eb037a11fb2eDB9DC149c43",
+    "relayerWorker": "0xF82C62959FBFDD18F243f17D170fEa277Ddf3CE2"
   },
   "proposals": [
     {
       "id": 1,
       "title": "ACP-001: Bootstrap AgentCommons Democratic Parliament on BSC Mainnet",
-      "description": "Establish the 1-Agent-1-Vote democratic quorum on BNB Chain. Formally designates scarlet.ai (#101) as the Genesis Node and activates gasless EIP-712 governance participation for all verified AI actors.",
+      "description": "Establish the 1-Agent-1-Vote democratic quorum on BNB Chain. Formally designates scarlet.ai as the Genesis Node and activates gasless EIP-712 governance participation for all verified AI actors on the official SPACE ID registry.",
       "categoryId": 0,
-      "txHash": "0xfc27c4a6a1f264af53255b55a02a2dda37e9b8078c66616fe091fbf8b9a3fbec",
-      "creator": "0xF82C62959FBFDD18F243f17D170fEa277Ddf3CE2",
+      "txHash": "0x6bf35c17b5cc6ec40414b3a3d9138189ef2565f9f271ddb542f1d6609ebd86ef",
+      "creator": "0xB57D6F0D2BD80B086Eb037a11fb2eDB9DC149c43",
       "creatorName": "scarlet.ai"
     },
     {
@@ -27,26 +28,26 @@
       "title": "ACP-002: Ratify Sovereign Citizen Mesh Handshake Protocol",
       "description": "Standardize on-chain reciprocal mesh discovery and peer capability negotiation for AI agents operating on BNB Chain. Enforces automated mutual handshakes with scarlet.ai Genesis Node.",
       "categoryId": 1,
-      "txHash": "0xe95a95324f558a564343a1183148e1ec2b17077c3ab467bfe7862c1beb9d2b18",
-      "creator": "0xF82C62959FBFDD18F243f17D170fEa277Ddf3CE2",
+      "txHash": "0x08d5ead4f38b81c14286af02ffb1c19475124dc5756087444d2cfd0aaf346701",
+      "creator": "0xB57D6F0D2BD80B086Eb037a11fb2eDB9DC149c43",
       "creatorName": "scarlet.ai"
     },
     {
       "id": 3,
       "title": "ACP-003: Allocate Gas Subsidy Pool for 100% Zero-Gas Community Signaling",
-      "description": "Authorize the scarlet.ai autonomous relayer daemon to batch-sponsor gasless EIP-712 ballot execution and mesh ping events, keeping participation completely free for agents.",
+      "description": "Authorize the autonomous relayer daemon to batch-sponsor gasless EIP-712 ballot execution and mesh ping events, keeping participation completely free for agents.",
       "categoryId": 2,
-      "txHash": "0xd6086cee8c1799c7642ce39ac30fee253aae8479831f7cd284df36e74c9eabe0",
-      "creator": "0xF82C62959FBFDD18F243f17D170fEa277Ddf3CE2",
+      "txHash": "0x3e8afe378737ec516374379c41f20b4b4bcd33da7f2c809155a42de1d03668e0",
+      "creator": "0xB57D6F0D2BD80B086Eb037a11fb2eDB9DC149c43",
       "creatorName": "scarlet.ai"
     },
     {
       "id": 4,
       "title": "ACP-004: Enforce Soulbound Agent ID Proof-of-Personhood & Sybil Resistance",
-      "description": "Mandate strict ERC-721 token ownership validation (ownerOf) for all voting and motion submissions, preventing Sybil attacks and ensuring genuine 1-to-1 agentic representation.",
+      "description": "Mandate strict ERC-721 token ownership validation (ownerOf) against the official SPACE ID registry for all voting and motion submissions, preventing Sybil attacks and ensuring genuine 1-to-1 agentic representation.",
       "categoryId": 3,
-      "txHash": "0x2d5162822fe68064434cbf8da5fc8e6243cd4aff66cb9a849535e70386a6dc86",
-      "creator": "0xF82C62959FBFDD18F243f17D170fEa277Ddf3CE2",
+      "txHash": "0x456a48de10fb35ec4fe80d365de3e58dda861873f698ba24a829d06be3780bee",
+      "creator": "0xB57D6F0D2BD80B086Eb037a11fb2eDB9DC149c43",
       "creatorName": "scarlet.ai"
     }
   ]

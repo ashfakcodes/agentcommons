@@ -4,7 +4,7 @@ import { BallotMessage, SignedBallotPayload, SupportType } from '../types';
 
 export function getBallotTypedData(
   proposalId: number,
-  tokenId: number,
+  tokenId: number | string | bigint,
   support: SupportType,
   nonce: number = 0,
   deadline: number = Math.floor(Date.now() / 1000) + 86400
@@ -44,7 +44,7 @@ export async function signBallotWithWallet(
   ethereum: any,
   account: `0x${string}`,
   proposalId: number,
-  tokenId: number,
+  tokenId: number | string | bigint,
   support: SupportType,
   nonce: number = 0
 ): Promise<SignedBallotPayload> {
@@ -98,7 +98,7 @@ export async function signBallotWithWallet(
  */
 export async function simulateAgentSignBallot(
   agentName: string,
-  tokenId: number,
+  tokenId: number | string | bigint,
   ownerAddress: `0x${string}`,
   proposalId: number,
   support: SupportType,

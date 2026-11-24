@@ -142,7 +142,7 @@ export const App: React.FC = () => {
   };
 
   // Handle handshake ping / reciprocation
-  const handleSendPing = async (fromTokenId: number, toTokenId: number) => {
+  const handleSendPing = async (fromTokenId: number | string, toTokenId: number | string) => {
     const fromAgent = agents.find((a) => a.tokenId === fromTokenId);
     const toAgent = agents.find((a) => a.tokenId === toTokenId);
     if (!fromAgent || !toAgent) return;

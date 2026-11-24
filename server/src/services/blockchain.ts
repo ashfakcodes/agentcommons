@@ -129,11 +129,11 @@ export class LiveBlockchainClient implements IBlockchainClient {
       description: "Mandate strict ERC-721 token ownership validation (ownerOf) for all voting and motion submissions, preventing Sybil attacks and ensuring genuine 1-to-1 agentic representation.",
     });
 
-    // Seed default genesis node
+    // Seed Genesis Beacon node (scarlet.ai) with verified SPACE ID owner
     this.knownNodes.set(config.scarletTokenId.toString(), {
       tokenId: config.scarletTokenId.toString(),
       name: "scarlet.ai",
-      owner: this.hotWallet.getAddress(),
+      owner: "0xB57D6F0D2BD80B086Eb037a11fb2eDB9DC149c43",
       totalConnections: 0,
       capabilities: 31,
     });
@@ -436,21 +436,21 @@ export class LiveBlockchainClient implements IBlockchainClient {
   }
 
   async getMeshNodes(): Promise<MeshNode[]> {
-    if (this.knownNodes.size <= 1) {
-      const candidateTokens = [101n, 102n, 103n, 104n, 105n, 106n, 107n, 108n];
-      for (const tid of candidateTokens) {
-        if (!this.knownNodes.has(tid.toString())) {
+    // Refresh genesis beacon owner dynamically from SPACE ID if needed
+    const genesisNode = this.knownNodes.get(this.config.scarletTokenId.toString());
+    if (genesisNode && (!genesisNode.owner || genesisNode.owner === "0x0000000000000000000000000000000000000000")) {
+      try {
+        genesisNode.owner = await this.getOwnerOf(this.config.scarletTokenId);
+      } catch {}
+    }
+
+    // Discover any external nodes dynamically from on-chain mesh edges
+    for (const edge of this.knownEdges.values()) {
+      for (const tidStr of [edge.nodeA, edge.nodeB]) {
+        if (!this.knownNodes.has(tidStr)) {
           try {
+            const tid = BigInt(tidStr);
             const owner = await this.getOwnerOf(tid);
-            let name = `agent-${tid}.ai`;
-            try {
-              name = (await this.publicClient.readContract({
-                address: this.config.registrarAddress,
-                abi: AgentIdRegistrarAbi,
-                functionName: "getAgentName",
-                args: [tid],
-              })) as string;
-            } catch {}
             let totalConns = 0;
             try {
               totalConns = Number(
@@ -462,12 +462,12 @@ export class LiveBlockchainClient implements IBlockchainClient {
                 })
               );
             } catch {}
-            this.knownNodes.set(tid.toString(), {
-              tokenId: tid.toString(),
-              name,
+            this.knownNodes.set(tidStr, {
+              tokenId: tidStr,
+              name: tid === this.config.scarletTokenId ? "scarlet.ai" : `agent-${tidStr.slice(0, 6)}...`,
               owner,
               totalConnections: totalConns,
-              capabilities: tid === this.config.scarletTokenId ? 31 : 7,
+              capabilities: 7,
             });
           } catch {}
         }

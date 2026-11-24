@@ -208,7 +208,8 @@ export class ForceDirectedMesh {
         ctx.stroke();
 
         // Animated Energy Particle along mutual handshake
-        const pT = (this.particleOffset + (edge.fromTokenId * 0.13)) % 1;
+        const hashSeed = Number(BigInt(edge.fromTokenId || 0) % 1000n);
+        const pT = (this.particleOffset + (hashSeed * 0.13)) % 1;
         const px = nodeA.x + (nodeB.x - nodeA.x) * pT;
         const py = nodeA.y + (nodeB.y - nodeA.y) * pT;
         ctx.beginPath();
@@ -404,15 +405,15 @@ export class ForceDirectedMesh {
   }
 
   // Add ping handshake edge dynamically
-  addHandshake(fromId: number, toId: number) {
-    const fromAgent = this.nodes.find((n) => n.tokenId === fromId);
-    const toAgent = this.nodes.find((n) => n.tokenId === toId);
+  addHandshake(fromId: number | string, toId: number | string) {
+    const fromAgent = this.nodes.find((n) => n.tokenId.toString() === fromId.toString());
+    const toAgent = this.nodes.find((n) => n.tokenId.toString() === toId.toString());
     if (!fromAgent || !toAgent) return;
 
     const existing = this.edges.find(
       (e) =>
-        (e.fromTokenId === fromId && e.toTokenId === toId) ||
-        (e.fromTokenId === toId && e.toTokenId === fromId)
+        (e.fromTokenId.toString() === fromId.toString() && e.toTokenId.toString() === toId.toString()) ||
+        (e.fromTokenId.toString() === toId.toString() && e.toTokenId.toString() === fromId.toString())
     );
 
     if (existing) {
@@ -423,7 +424,7 @@ export class ForceDirectedMesh {
         toTokenId: toId,
         fromName: fromAgent.name,
         toName: toAgent.name,
-        edgeKey: `edge_${Math.min(fromId, toId)}_${Math.max(fromId, toId)}`,
+        edgeKey: `${BigInt(fromId) < BigInt(toId) ? fromId : toId}_${BigInt(fromId) < BigInt(toId) ? toId : fromId}`,
         isMutual: true,
         establishedAt: Date.now(),
         capabilityMask: (fromAgent.capabilities & toAgent.capabilities) || 1,

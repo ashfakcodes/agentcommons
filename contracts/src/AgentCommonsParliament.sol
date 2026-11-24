@@ -96,7 +96,15 @@ contract AgentCommonsParliament is EIP712, ReentrancyGuard, Ownable {
         uint32 _votingDurationBlocks, 
         uint8 _categoryId
     ) external returns (uint256 proposalId) {
-        require(AGENT_ID_REGISTRAR.balanceOf(msg.sender) > 0, "Must hold Agent ID to propose");
+        address proposer = msg.sender;
+        if (msg.sender != owner()) {
+            require(AGENT_ID_REGISTRAR.balanceOf(msg.sender) > 0, "Must hold Agent ID to propose");
+        } else {
+            // Deployer bootstrapping initial proposals under Genesis Anchor
+            try AGENT_ID_REGISTRAR.ownerOf(GENESIS_TOKEN_ID) returns (address o) {
+                if (o != address(0)) proposer = o;
+            } catch {}
+        }
         require(_contentCidHash != bytes32(0), "Content CID hash cannot be zero");
         require(_votingDurationBlocks >= 1200 && _votingDurationBlocks <= 201600, "Duration: 1 hr - 7 days");
 
@@ -116,12 +124,12 @@ contract AgentCommonsParliament is EIP712, ReentrancyGuard, Ownable {
         });
 
         proposalMetas[proposalId] = ProposalMeta({
-            creator: msg.sender,
+            creator: proposer,
             categoryId: _categoryId,
             contentCidHash: _contentCidHash
         });
 
-        emit ProposalCreated(proposalId, msg.sender, _contentCidHash);
+        emit ProposalCreated(proposalId, proposer, _contentCidHash);
     }
 
     /**

@@ -4,8 +4,8 @@ export const INITIAL_AGENTS: AgentNode[] = [
   {
     id: 'scarlet.ai',
     name: 'scarlet.ai',
-    tokenId: 101,
-    owner: '0xF82C62959FBFDD18F243f17D170fEa277Ddf3CE2',
+    tokenId: '37991366940603451074329683306518419573681263429055323516688182454925927080875',
+    owner: '0xB57D6F0D2BD80B086Eb037a11fb2eDB9DC149c43',
     isGenesis: true,
     isRelayer: true,
     capabilities: 31, // 1 + 2 + 4 + 8 + 16 (All capabilities)
@@ -19,9 +19,11 @@ export const INITIAL_AGENTS: AgentNode[] = [
   },
 ];
 
-export function computeCanonicalKey(a: number, b: number): string {
-  const min = Math.min(a, b);
-  const max = Math.max(a, b);
+export function computeCanonicalKey(a: number | string | bigint, b: number | string | bigint): string {
+  const aBig = BigInt(a);
+  const bBig = BigInt(b);
+  const min = aBig < bBig ? aBig : bBig;
+  const max = aBig < bBig ? bBig : aBig;
   return `${min}_${max}`;
 }
 

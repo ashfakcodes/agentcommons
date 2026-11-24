@@ -48,7 +48,7 @@ export const config: ServerConfig = {
   parliamentAddress: parseHexAddress(process.env.PARLIAMENT_ADDRESS, "0x1111111111111111111111111111111111111111"),
   meshAddress: parseHexAddress(process.env.MESH_ADDRESS, "0x2222222222222222222222222222222222222222"),
   registrarAddress: parseHexAddress(process.env.AGENT_ID_REGISTRAR_ADDRESS, "0x60b9262456de011f7d15a54cdd8c48baaa8b022f"),
-  scarletTokenId: BigInt(process.env.SCARLET_TOKEN_ID || "101"),
+  scarletTokenId: BigInt(process.env.SCARLET_TOKEN_ID || "37991366940603451074329683306518419573681263429055323516688182454925927080875"),
   scarletPrivateKey: parseHexAddress(
     process.env.SCARLET_PRIVATE_KEY,
     HARDHAT_LOCAL_MOCK_TEST_KEY

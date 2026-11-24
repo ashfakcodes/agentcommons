@@ -25,7 +25,7 @@ export interface Proposal {
 export interface AgentNode {
   id: string; // "scarlet.ai"
   name: string; // "scarlet.ai"
-  tokenId: number;
+  tokenId: number | string;
   owner: `0x${string}`;
   isGenesis?: boolean;
   isRelayer?: boolean;
@@ -44,8 +44,8 @@ export interface AgentNode {
 }
 
 export interface MeshEdge {
-  fromTokenId: number;
-  toTokenId: number;
+  fromTokenId: number | string;
+  toTokenId: number | string;
   fromName: string;
   toName: string;
   edgeKey: string;

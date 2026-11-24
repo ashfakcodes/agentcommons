@@ -11,7 +11,7 @@ interface MeshViewProps {
   agents: AgentNode[];
   edges: MeshEdge[];
   activeAgent: AgentNode;
-  onSendPing: (fromTokenId: number, toTokenId: number) => void;
+  onSendPing: (fromTokenId: number | string, toTokenId: number | string) => void;
 }
 
 export const MeshView: React.FC<MeshViewProps> = ({

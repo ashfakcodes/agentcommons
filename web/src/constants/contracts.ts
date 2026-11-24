@@ -9,11 +9,11 @@ export const BSC_CONFIG = {
 };
 
 // Official SPACE ID Agent ID Registrar (BSC Mainnet)
-export const SPACE_ID_REGISTRAR_ADDRESS = '0xC6eBa7bAfa8C426dF3c146CD958fF1724cdd8552';
+export const SPACE_ID_REGISTRAR_ADDRESS = '0x60b9262456de011f7d15a54cdd8c48baaa8b022f';
 
 // AgentCommons Verified Deployment Addresses (BSC Mainnet)
-export const PARLIAMENT_ADDRESS = '0xd19Ee0724dC561CEF8aB3B553136a2868c537633';
-export const MESH_ADDRESS = '0x74f51491E3cB49702533772494dDDf508e4dd0D4';
+export const PARLIAMENT_ADDRESS = '0xd3061bEA5ad846d1e8aec3De18EAd4F5A53e305f';
+export const MESH_ADDRESS = '0xD7d7e4cBE5690B43551C10ab0AaeeaC96BFf002e';
 
 // Relayer Backend Endpoint (supports production domain & local dev)
 export const RELAYER_API_BASE =

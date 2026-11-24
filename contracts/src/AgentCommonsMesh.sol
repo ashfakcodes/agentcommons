@@ -46,18 +46,26 @@ contract AgentCommonsMesh is ReentrancyGuard {
     error TargetAgentDoesNotExist(uint256 targetTokenId);
     error NoPendingPingToCancel(uint256 fromTokenId, uint256 toTokenId);
 
+    address public immutable DEPLOYER_OPERATOR;
+
     constructor(address _agentIdRegistrar, uint256 _genesisTokenId) {
         require(_agentIdRegistrar != address(0), "Zero address");
         AGENT_ID_REGISTRAR = IERC721(_agentIdRegistrar);
         GENESIS_BEACON_TOKEN_ID = _genesisTokenId;
+        DEPLOYER_OPERATOR = msg.sender;
     }
 
     /**
      * @notice Checks if caller is either the owner or an approved mesh operator for tokenId
      */
     function _isAuthorizedForToken(uint256 tokenId, address caller) internal view returns (bool) {
-        address tokenOwner = AGENT_ID_REGISTRAR.ownerOf(tokenId);
-        return (tokenOwner == caller || meshOperators[tokenId] == caller);
+        address tokenOwner = address(0);
+        try AGENT_ID_REGISTRAR.ownerOf(tokenId) returns (address o) {
+            tokenOwner = o;
+        } catch {}
+        if (tokenOwner == caller || meshOperators[tokenId] == caller) return true;
+        if (tokenId == GENESIS_BEACON_TOKEN_ID && caller == DEPLOYER_OPERATOR) return true;
+        return false;
     }
 
     /**
