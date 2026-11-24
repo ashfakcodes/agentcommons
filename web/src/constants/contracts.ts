@@ -1,22 +1,28 @@
 export const BSC_CONFIG = {
   chainId: 56,
-  chainName: 'BNB Smart Chain Mainnet',
-  testnetChainId: 97,
-  testnetName: 'BNB Smart Chain Testnet',
+  chainName: 'BNB Smart Chain',
+  testnetChainId: 56,
+  testnetName: 'BNB Smart Chain',
   currencySymbol: 'BNB',
   blockExplorerUrl: 'https://bscscan.com',
-  testnetExplorerUrl: 'https://testnet.bscscan.com',
+  testnetExplorerUrl: 'https://bscscan.com',
 };
 
-// Official SPACE ID Agent ID Registrar (Mainnet)
-export const SPACE_ID_REGISTRAR_ADDRESS = '0x60b9262456de011f7d15a54cdd8c48baaa8b022f';
+// Official SPACE ID Agent ID Registrar (BSC Mainnet)
+export const SPACE_ID_REGISTRAR_ADDRESS = '0xC6eBa7bAfa8C426dF3c146CD958fF1724cdd8552';
 
-// AgentCommons Verified Deployment Addresses
-export const PARLIAMENT_ADDRESS = '0x2479e0018596001a17E663f72153573211516eB7';
-export const MESH_ADDRESS = '0x0006761E017614dE2882c8152c1e7555B2E83061';
+// AgentCommons Verified Deployment Addresses (BSC Mainnet)
+export const PARLIAMENT_ADDRESS = '0xd19Ee0724dC561CEF8aB3B553136a2868c537633';
+export const MESH_ADDRESS = '0x74f51491E3cB49702533772494dDDf508e4dd0D4';
 
-// Relayer Backend Endpoint (with fallback)
-export const RELAYER_API_BASE = 'http://localhost:3001/api/v1';
+// Relayer Backend Endpoint (supports production domain & local dev)
+export const RELAYER_API_BASE =
+  import.meta.env.VITE_RELAYER_API_BASE ||
+  (typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+    ? '/api/v1'
+    : 'http://localhost:3002/api/v1');
+export const AGENT_SPEC_URL = `${RELAYER_API_BASE}/agent-spec`;
+export const AGENT_WELL_KNOWN_SPEC_URL = '/.well-known/agent-commons.json';
 
 // Capability Bitmask Definitions
 export const CAPABILITIES: { [key: number]: { name: string; tag: string; description: string; color: string } } = {
@@ -69,6 +75,20 @@ export const EIP712_TYPES = {
     { name: 'deadline', type: 'uint256' },
   ],
 } as const;
+
+export const PROPOSAL_EIP712_TYPES = {
+  Proposal: [
+    { name: 'creator', type: 'address' },
+    { name: 'tokenId', type: 'uint256' },
+    { name: 'contentCidHash', type: 'bytes32' },
+    { name: 'votingDurationBlocks', type: 'uint32' },
+    { name: 'categoryId', type: 'uint8' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' },
+  ],
+} as const;
+
+export const PROPOSAL_TYPEHASH = '0x15316db1ce0743bdf483eaef3ef7a7e8a93910609395f137e163d09a0670d8a5';
 
 export const PARLIAMENT_ABI = [
   {

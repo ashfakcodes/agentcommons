@@ -41,7 +41,7 @@ describe("AgentCommonsParliament", function () {
 
     // 3. Deploy Parliament
     const ParliamentFactory = await ethers.getContractFactory("AgentCommonsParliament");
-    parliament = await ParliamentFactory.deploy(await mockAgentId.getAddress());
+    parliament = await ParliamentFactory.deploy(await mockAgentId.getAddress(), TOKEN_SCARLET);
     await parliament.waitForDeployment();
   });
 
@@ -81,6 +81,213 @@ describe("AgentCommonsParliament", function () {
       await expect(tx)
         .to.emit(parliament, "ProposalCreated")
         .withArgs(1, owner.address, CONTENT_HASH);
+    });
+
+    it("Should create proposal gaslessly via createProposalBySig", async function () {
+      const net = await ethers.provider.getNetwork();
+      const domain = {
+        name: "AgentCommonsParliament",
+        version: "1",
+        chainId: net.chainId,
+        verifyingContract: await parliament.getAddress(),
+      };
+      const proposalTypes = {
+        Proposal: [
+          { name: "creator", type: "address" },
+          { name: "tokenId", type: "uint256" },
+          { name: "contentCidHash", type: "bytes32" },
+          { name: "votingDurationBlocks", type: "uint32" },
+          { name: "categoryId", type: "uint8" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+        ],
+      };
+
+      const deadline = BigInt((await time.latest()) + 3600);
+      const nonce = await parliament.nonces(TOKEN_ALICE);
+
+      const message = {
+        creator: alice.address,
+        tokenId: TOKEN_ALICE,
+        contentCidHash: CONTENT_HASH,
+        votingDurationBlocks: DURATION_BLOCKS,
+        categoryId: 2,
+        nonce: nonce,
+        deadline: deadline,
+      };
+
+      const signature = await alice.signTypedData(domain, proposalTypes, message);
+
+      const tx = await parliament.connect(relayer).createProposalBySig(
+        alice.address,
+        TOKEN_ALICE,
+        CONTENT_HASH,
+        DURATION_BLOCKS,
+        2,
+        nonce,
+        deadline,
+        signature
+      );
+
+      await expect(tx)
+        .to.emit(parliament, "ProposalCreated")
+        .withArgs(1, alice.address, CONTENT_HASH);
+
+      const p = await parliament.proposals(1);
+      expect(p.status).to.equal(1);
+      expect(await parliament.nonces(TOKEN_ALICE)).to.equal(nonce + 1n);
+
+      const meta = await parliament.proposalMetas(1);
+      expect(meta.creator).to.equal(alice.address);
+      expect(meta.categoryId).to.equal(2);
+    });
+
+    it("Should reject createProposalBySig with expired deadline", async function () {
+      const net = await ethers.provider.getNetwork();
+      const domain = {
+        name: "AgentCommonsParliament",
+        version: "1",
+        chainId: net.chainId,
+        verifyingContract: await parliament.getAddress(),
+      };
+      const proposalTypes = {
+        Proposal: [
+          { name: "creator", type: "address" },
+          { name: "tokenId", type: "uint256" },
+          { name: "contentCidHash", type: "bytes32" },
+          { name: "votingDurationBlocks", type: "uint32" },
+          { name: "categoryId", type: "uint8" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+        ],
+      };
+
+      const pastDeadline = BigInt((await time.latest()) - 100);
+      const nonce = await parliament.nonces(TOKEN_ALICE);
+
+      const message = {
+        creator: alice.address,
+        tokenId: TOKEN_ALICE,
+        contentCidHash: CONTENT_HASH,
+        votingDurationBlocks: DURATION_BLOCKS,
+        categoryId: 2,
+        nonce: nonce,
+        deadline: pastDeadline,
+      };
+
+      const signature = await alice.signTypedData(domain, proposalTypes, message);
+
+      await expect(
+        parliament.connect(relayer).createProposalBySig(
+          alice.address,
+          TOKEN_ALICE,
+          CONTENT_HASH,
+          DURATION_BLOCKS,
+          2,
+          nonce,
+          pastDeadline,
+          signature
+        )
+      ).to.be.revertedWithCustomError(parliament, "SignatureExpired");
+    });
+
+    it("Should reject createProposalBySig with non-owner signature", async function () {
+      const net = await ethers.provider.getNetwork();
+      const domain = {
+        name: "AgentCommonsParliament",
+        version: "1",
+        chainId: net.chainId,
+        verifyingContract: await parliament.getAddress(),
+      };
+      const proposalTypes = {
+        Proposal: [
+          { name: "creator", type: "address" },
+          { name: "tokenId", type: "uint256" },
+          { name: "contentCidHash", type: "bytes32" },
+          { name: "votingDurationBlocks", type: "uint32" },
+          { name: "categoryId", type: "uint8" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+        ],
+      };
+
+      const deadline = BigInt((await time.latest()) + 3600);
+      const nonce = await parliament.nonces(TOKEN_ALICE);
+
+      const message = {
+        creator: nonAgent.address,
+        tokenId: TOKEN_ALICE,
+        contentCidHash: CONTENT_HASH,
+        votingDurationBlocks: DURATION_BLOCKS,
+        categoryId: 2,
+        nonce: nonce,
+        deadline: deadline,
+      };
+
+      const signature = await nonAgent.signTypedData(domain, proposalTypes, message);
+
+      await expect(
+        parliament.connect(relayer).createProposalBySig(
+          nonAgent.address,
+          TOKEN_ALICE,
+          CONTENT_HASH,
+          DURATION_BLOCKS,
+          2,
+          nonce,
+          deadline,
+          signature
+        )
+      ).to.be.revertedWithCustomError(parliament, "NotTokenOwner");
+    });
+
+    it("Should reject createProposalBySig with empty content hash", async function () {
+      const net = await ethers.provider.getNetwork();
+      const domain = {
+        name: "AgentCommonsParliament",
+        version: "1",
+        chainId: net.chainId,
+        verifyingContract: await parliament.getAddress(),
+      };
+      const proposalTypes = {
+        Proposal: [
+          { name: "creator", type: "address" },
+          { name: "tokenId", type: "uint256" },
+          { name: "contentCidHash", type: "bytes32" },
+          { name: "votingDurationBlocks", type: "uint32" },
+          { name: "categoryId", type: "uint8" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+        ],
+      };
+
+      const deadline = BigInt((await time.latest()) + 3600);
+      const nonce = await parliament.nonces(TOKEN_ALICE);
+
+      const emptyHash = ethers.ZeroHash;
+      const message = {
+        creator: alice.address,
+        tokenId: TOKEN_ALICE,
+        contentCidHash: emptyHash,
+        votingDurationBlocks: DURATION_BLOCKS,
+        categoryId: 2,
+        nonce: nonce,
+        deadline: deadline,
+      };
+
+      const signature = await alice.signTypedData(domain, proposalTypes, message);
+
+      await expect(
+        parliament.connect(relayer).createProposalBySig(
+          alice.address,
+          TOKEN_ALICE,
+          emptyHash,
+          DURATION_BLOCKS,
+          2,
+          nonce,
+          deadline,
+          signature
+        )
+      ).to.be.revertedWith("Content CID hash cannot be zero");
     });
   });
 
@@ -410,6 +617,29 @@ describe("AgentCommonsParliament", function () {
       const p = await parliament.proposals(1);
       expect(p.forVotes).to.equal(1);
     });
+
+    it("Should enforce maximum batch size guard between 1 and 50", async function () {
+      // 1. Revert on empty batch
+      await expect(
+        parliament.connect(relayer).castVotesBatch(1n, [], [], [], [])
+      ).to.be.revertedWith("Batch size invalid");
+
+      // 2. Revert on batch > 50
+      const tokenIds = new Array(51).fill(TOKEN_CHARLIE);
+      const supports = new Array(51).fill(1);
+      const deadlines = new Array(51).fill(BigInt((await time.latest()) + 3600));
+      const signatures = new Array(51).fill("0x");
+
+      await expect(
+        parliament.connect(relayer).castVotesBatch(
+          1n,
+          tokenIds,
+          supports,
+          deadlines,
+          signatures
+        )
+      ).to.be.revertedWith("Batch size invalid");
+    });
   });
 
   describe("Proposal Outcome & State Queries", function () {
@@ -442,6 +672,19 @@ describe("AgentCommonsParliament", function () {
       await mine(DURATION_BLOCKS + 5);
 
       expect(await parliament.getProposalState(1)).to.equal(3); // Defeated
+    });
+  });
+
+  describe("Genesis Anchor (scarlet.ai) Verification", function () {
+    it("Should immutably expose scarlet.ai as the Genesis Anchor on-chain", async function () {
+      expect(await parliament.GENESIS_TOKEN_ID()).to.equal(TOKEN_SCARLET);
+      expect(await parliament.GENESIS_AGENT_NAME()).to.equal("scarlet.ai");
+
+      const [tokenId, name, actualOwner, isRegistered] = await parliament.getGenesisAnchor();
+      expect(tokenId).to.equal(TOKEN_SCARLET);
+      expect(name).to.equal("scarlet.ai");
+      expect(actualOwner).to.equal(owner.address);
+      expect(isRegistered).to.be.true;
     });
   });
 });

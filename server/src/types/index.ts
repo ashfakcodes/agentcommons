@@ -7,6 +7,10 @@ export interface QueuedVote {
   signature: `0x${string}`;
   signer: `0x${string}`;
   queuedAt: number;
+  rationale?: string;
+  retryCount?: number;
+  lastAttemptAt?: number;
+  lastError?: string;
 }
 
 export interface BallotMessage {
@@ -24,6 +28,30 @@ export interface VoteSubmitRequest {
   deadline: string | number;
   signature: string;
   nonce?: string | number;
+  rationale?: string;
+}
+
+export interface ProposalMessage {
+  creator: `0x${string}`;
+  tokenId: bigint;
+  contentCidHash: `0x${string}`;
+  votingDurationBlocks: number;
+  categoryId: number;
+  nonce: bigint;
+  deadline: bigint;
+}
+
+export interface PublishProposalRequest {
+  creator: string;
+  tokenId: string | number;
+  title: string;
+  description: string;
+  contentCidHash: string;
+  votingDurationBlocks: number;
+  categoryId: number;
+  deadline: string | number;
+  signature: string;
+  nonce: string | number;
 }
 
 export enum ProposalStatus {
@@ -105,6 +133,16 @@ export interface RelayerHealth {
   scarletTokenId: string;
   scarletAddress: string;
   scarletBalanceBnb: string;
+  hotWallet?: {
+    address: string;
+    chainId: number;
+    balanceWei: string;
+    balanceBnb: string;
+    currentNonce: number;
+    isGasHealthy: boolean;
+    minThresholdBnb: string;
+    keystoreSource: string;
+  };
   queuedVotesCount: number;
   contracts: {
     parliament: string;

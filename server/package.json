@@ -7,6 +7,10 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
+    "benchmark": "tsx src/benchmark.ts",
+    "wallet:new": "tsx src/cli/wallet-cli.ts new",
+    "wallet:import": "tsx src/cli/wallet-cli.ts import",
+    "wallet:status": "tsx src/cli/wallet-cli.ts status",
     "test": "vitest run"
   },
   "dependencies": {

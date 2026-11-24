@@ -22,10 +22,26 @@ export function createHealthRouter(
     try {
       const scarletAddress = blockchain.getAccountAddress();
       let balanceBnb = "0";
+      let hotWalletSummary: any = null;
 
       try {
-        const balance = await blockchain.getBalance(scarletAddress);
-        balanceBnb = formatEther(balance);
+        if (blockchain.hotWallet) {
+          const status = await blockchain.hotWallet.getStatus();
+          balanceBnb = status.balanceBnb;
+          hotWalletSummary = {
+            address: status.address,
+            chainId: status.chainId,
+            balanceWei: status.balanceWei.toString(),
+            balanceBnb: status.balanceBnb,
+            currentNonce: Number(status.currentNonce),
+            isGasHealthy: status.isGasHealthy,
+            minThresholdBnb: status.minThresholdBnb,
+            keystoreSource: status.keystoreSource,
+          };
+        } else {
+          const balance = await blockchain.getBalance(scarletAddress);
+          balanceBnb = formatEther(balance);
+        }
       } catch (e) {
         balanceBnb = "error";
       }
@@ -41,6 +57,7 @@ export function createHealthRouter(
         scarletTokenId: config.scarletTokenId.toString(),
         scarletAddress,
         scarletBalanceBnb: balanceBnb,
+        hotWallet: hotWalletSummary,
         queuedVotesCount: queue.length,
         contracts: {
           parliament: config.parliamentAddress,
@@ -57,6 +74,7 @@ export function createHealthRouter(
 
       res.json(health);
     } catch (err: any) {
+      console.error("[HealthRoute] Error handling health check:", err);
       res.status(500).json({
         status: "error",
         error: err.message || String(err),

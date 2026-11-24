@@ -43,10 +43,13 @@ async function main() {
     }
   }
 
+  const genesisTokenId = BigInt(process.env.SCARLET_TOKEN_ID || "101");
+  console.log(`Genesis Anchor Token ID (scarlet.ai): #${genesisTokenId}`);
+
   // 1. Deploy AgentCommonsParliament
   console.log("\nDeploying AgentCommonsParliament.sol...");
   const ParliamentFactory = await ethers.getContractFactory("AgentCommonsParliament");
-  const parliament = await ParliamentFactory.deploy(registrarAddress);
+  const parliament = await ParliamentFactory.deploy(registrarAddress, genesisTokenId);
   await parliament.waitForDeployment();
   const parliamentAddress = await parliament.getAddress();
   console.log(`✅ AgentCommonsParliament deployed at: ${parliamentAddress}`);
@@ -54,7 +57,7 @@ async function main() {
   // 2. Deploy AgentCommonsMesh
   console.log("\nDeploying AgentCommonsMesh.sol...");
   const MeshFactory = await ethers.getContractFactory("AgentCommonsMesh");
-  const mesh = await MeshFactory.deploy(registrarAddress);
+  const mesh = await MeshFactory.deploy(registrarAddress, genesisTokenId);
   await mesh.waitForDeployment();
   const meshAddress = await mesh.getAddress();
   console.log(`✅ AgentCommonsMesh deployed at: ${meshAddress}`);

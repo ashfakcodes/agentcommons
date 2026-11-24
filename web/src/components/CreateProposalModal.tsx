@@ -4,12 +4,14 @@ import { AgentNode, Proposal } from '../types';
 
 interface CreateProposalModalProps {
   activeAgent: AgentNode;
+  existingProposals?: Proposal[];
   onClose: () => void;
   onCreateSuccess: (newProposal: Proposal) => void;
 }
 
 export const CreateProposalModal: React.FC<CreateProposalModalProps> = ({
   activeAgent,
+  existingProposals = [],
   onClose,
   onCreateSuccess,
 }) => {
@@ -37,9 +39,19 @@ export const CreateProposalModal: React.FC<CreateProposalModalProps> = ({
     const selectedCategory = categories.find((c) => c.id === category)?.name as any || 'Governance';
     const fakeCidHash = ('0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')) as `0x${string}`;
 
+    // Compute deterministic sequential ID matching on-chain counter (++proposalCount)
+    const validNumberedIds = existingProposals
+      .map((p) => p.id)
+      .filter((id) => typeof id === 'number' && id > 0 && id < 90);
+    const nextId = validNumberedIds.length > 0 ? Math.max(...validNumberedIds) + 1 : 5;
+
+    const formattedTitle = title.trim().startsWith('ACP-')
+      ? title.trim()
+      : `ACP-${String(nextId).padStart(3, '0')}: ${title.trim()}`;
+
     const newProposal: Proposal = {
-      id: Math.floor(Date.now() / 1000) % 1000,
-      title: title.trim(),
+      id: nextId,
+      title: formattedTitle,
       description: description.trim(),
       creator: activeAgent.owner,
       creatorName: activeAgent.name,

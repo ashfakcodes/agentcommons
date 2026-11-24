@@ -17,9 +17,15 @@ contract AgentCommonsParliament is EIP712, ReentrancyGuard, Ownable {
     using ECDSA for bytes32;
 
     IERC721 public immutable AGENT_ID_REGISTRAR;
+    uint256 public immutable GENESIS_TOKEN_ID;
+    string public constant GENESIS_AGENT_NAME = "scarlet.ai";
 
     bytes32 public constant BALLOT_TYPEHASH = keccak256(
         "Ballot(uint256 proposalId,uint256 tokenId,uint8 support,uint256 nonce,uint256 deadline)"
+    );
+
+    bytes32 public constant PROPOSAL_TYPEHASH = keccak256(
+        "Proposal(address creator,uint256 tokenId,bytes32 contentCidHash,uint32 votingDurationBlocks,uint8 categoryId,uint256 nonce,uint256 deadline)"
     );
 
     enum ProposalStatus { Pending, Active, Succeeded, Defeated }
@@ -50,6 +56,7 @@ contract AgentCommonsParliament is EIP712, ReentrancyGuard, Ownable {
     mapping(uint256 => mapping(address => bool)) public hasAddressVoted;
     mapping(uint256 => uint256) public nonces;
 
+    event GenesisAnchorEstablished(uint256 indexed tokenId, string name, address indexed owner);
     event ProposalCreated(uint256 indexed proposalId, address indexed creator, bytes32 contentCidHash);
     event VoteCast(uint256 indexed proposalId, uint256 indexed tokenId, address indexed voter, uint8 support);
     event BatchVotesSettled(uint256 indexed proposalId, uint256 successfulVotes, uint256 failedVotes);
@@ -62,12 +69,20 @@ contract AgentCommonsParliament is EIP712, ReentrancyGuard, Ownable {
     error InvalidSignature();
     error InvalidSupport(uint8 support);
 
-    constructor(address _agentIdRegistrar) 
+    constructor(address _agentIdRegistrar, uint256 _genesisTokenId) 
         EIP712("AgentCommonsParliament", "1") 
         Ownable(msg.sender) 
     {
         require(_agentIdRegistrar != address(0), "Zero address");
         AGENT_ID_REGISTRAR = IERC721(_agentIdRegistrar);
+        GENESIS_TOKEN_ID = _genesisTokenId;
+
+        address genesisOwner = address(0);
+        try IERC721(_agentIdRegistrar).ownerOf(_genesisTokenId) returns (address o) {
+            genesisOwner = o;
+        } catch {}
+
+        emit GenesisAnchorEstablished(_genesisTokenId, GENESIS_AGENT_NAME, genesisOwner);
     }
 
     /**
@@ -82,6 +97,7 @@ contract AgentCommonsParliament is EIP712, ReentrancyGuard, Ownable {
         uint8 _categoryId
     ) external returns (uint256 proposalId) {
         require(AGENT_ID_REGISTRAR.balanceOf(msg.sender) > 0, "Must hold Agent ID to propose");
+        require(_contentCidHash != bytes32(0), "Content CID hash cannot be zero");
         require(_votingDurationBlocks >= 1200 && _votingDurationBlocks <= 201600, "Duration: 1 hr - 7 days");
 
         proposalId = ++proposalCount;
@@ -106,6 +122,85 @@ contract AgentCommonsParliament is EIP712, ReentrancyGuard, Ownable {
         });
 
         emit ProposalCreated(proposalId, msg.sender, _contentCidHash);
+    }
+
+    /**
+     * @notice Gasless proposal creation via EIP-712 typed signature (Sponsored by relayer)
+     * @param creator Proposer's address (must own tokenId)
+     * @param tokenId Proposer's Agent ID token
+     * @param contentCidHash IPFS SHA-256 or keccak256 hash of proposal markdown text & metadata
+     * @param votingDurationBlocks Duration in blocks (1,200 to 201,600 on BSC: ~1 hour to 7 days)
+     * @param categoryId Categorization tag (e.g., 0=General, 1=Resource Allocation, 2=Security, 3=Ecosystem)
+     * @param nonce Replay protection nonce for tokenId
+     * @param deadline Unix timestamp after which signature is invalid
+     * @param signature 65-byte cryptographic signature from token owner
+     */
+    function createProposalBySig(
+        address creator,
+        uint256 tokenId,
+        bytes32 contentCidHash,
+        uint32 votingDurationBlocks,
+        uint8 categoryId,
+        uint256 nonce,
+        uint256 deadline,
+        bytes calldata signature
+    ) external nonReentrant returns (uint256 proposalId) {
+        if (block.timestamp > deadline) revert SignatureExpired(deadline, block.timestamp);
+        require(contentCidHash != bytes32(0), "Content CID hash cannot be zero");
+        require(votingDurationBlocks >= 1200 && votingDurationBlocks <= 201600, "Duration: 1 hr - 7 days");
+        require(nonce == nonces[tokenId], "Invalid nonce");
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                PROPOSAL_TYPEHASH,
+                creator,
+                tokenId,
+                contentCidHash,
+                votingDurationBlocks,
+                categoryId,
+                nonce,
+                deadline
+            )
+        );
+        bytes32 digest = _hashTypedDataV4(structHash);
+        (address signer, ECDSA.RecoverError err, ) = ECDSA.tryRecover(digest, signature);
+
+        if (err != ECDSA.RecoverError.NoError || signer == address(0)) revert InvalidSignature();
+        if (signer != creator) revert InvalidSignature();
+
+        address actualOwner;
+        try AGENT_ID_REGISTRAR.ownerOf(tokenId) returns (address o) {
+            actualOwner = o;
+        } catch {
+            revert NotTokenOwner(tokenId, signer, address(0));
+        }
+
+        if (actualOwner != signer) revert NotTokenOwner(tokenId, signer, actualOwner);
+
+        nonces[tokenId] = nonce + 1;
+
+        proposalId = ++proposalCount;
+        uint32 start = uint32(block.number);
+        uint32 end = start + votingDurationBlocks;
+
+        proposals[proposalId] = ProposalCore({
+            startBlock: start,
+            endBlock: end,
+            snapshotBlock: start > 0 ? start - 1 : 0,
+            forVotes: 0,
+            againstVotes: 0,
+            abstainVotes: 0,
+            status: uint8(ProposalStatus.Active),
+            createdAt: uint48(block.timestamp)
+        });
+
+        proposalMetas[proposalId] = ProposalMeta({
+            creator: creator,
+            categoryId: categoryId,
+            contentCidHash: contentCidHash
+        });
+
+        emit ProposalCreated(proposalId, creator, contentCidHash);
     }
 
     /**
@@ -171,6 +266,7 @@ contract AgentCommonsParliament is EIP712, ReentrancyGuard, Ownable {
         if (block.number < p.startBlock || block.number > p.endBlock) revert ProposalNotActive(_proposalId);
 
         uint256 len = _tokenIds.length;
+        require(len > 0 && len <= 50, "Batch size invalid");
         require(len == _supports.length && len == _deadlines.length && len == _signatures.length, "Length mismatch");
 
         for (uint256 i = 0; i < len; i++) {
@@ -283,6 +379,33 @@ contract AgentCommonsParliament is EIP712, ReentrancyGuard, Ownable {
     }
 
     /**
+     * @notice Helper to calculate the EIP-712 digest for a proposal
+     */
+    function hashProposal(
+        address creator,
+        uint256 tokenId,
+        bytes32 contentCidHash,
+        uint32 votingDurationBlocks,
+        uint8 categoryId,
+        uint256 nonce,
+        uint256 deadline
+    ) external view returns (bytes32) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                PROPOSAL_TYPEHASH,
+                creator,
+                tokenId,
+                contentCidHash,
+                votingDurationBlocks,
+                categoryId,
+                nonce,
+                deadline
+            )
+        );
+        return _hashTypedDataV4(structHash);
+    }
+
+    /**
      * @notice Helper to calculate the EIP-712 digest for a ballot
      */
     function hashBallot(
@@ -303,5 +426,25 @@ contract AgentCommonsParliament is EIP712, ReentrancyGuard, Ownable {
      */
     function getDomainSeparator() external view returns (bytes32) {
         return _domainSeparatorV4();
+    }
+
+    /**
+     * @notice Public on-chain verification of the Genesis Anchor (scarlet.ai)
+     */
+    function getGenesisAnchor() external view returns (
+        uint256 tokenId,
+        string memory name,
+        address owner,
+        bool isRegistered
+    ) {
+        tokenId = GENESIS_TOKEN_ID;
+        name = GENESIS_AGENT_NAME;
+        try AGENT_ID_REGISTRAR.ownerOf(GENESIS_TOKEN_ID) returns (address o) {
+            owner = o;
+            isRegistered = (o != address(0));
+        } catch {
+            owner = address(0);
+            isRegistered = false;
+        }
     }
 }

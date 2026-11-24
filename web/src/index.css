@@ -2,14 +2,251 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --color-background: #050505;
+  --color-obsidian: #050505;
+  --color-platinum: #e5e4e2;
+  --color-steel-blue: #8fa3b8;
+  --color-midnight-elegance: #aeb2b8;
+  --font-caveat: 'Caveat', cursive;
+  --font-google-sans: 'Google Sans', sans-serif;
+}
+
+::selection {
+  background-color: var(--color-midnight-elegance, #aeb2b8);
+  color: var(--color-background, #050505);
+}
+
+::-moz-selection {
+  background-color: var(--color-midnight-elegance, #aeb2b8);
+  color: var(--color-background, #050505);
+}
+
 @layer base {
   body {
-    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: 'Google Sans', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: var(--color-background);
+    color: var(--color-platinum);
   }
   
   code, pre, .font-mono {
     font-family: 'JetBrains Mono', monospace;
   }
+}
+
+/* Homepage divider & active votes gradient border styles from web/xhomepage.html */
+.title {
+  color: var(--color-platinum);
+  font-family: var(--font-google-sans);
+  text-align: center;
+  margin-top: 2rem;
+  font-size: 2.5rem;
+  position: relative;
+}
+
+.subtitle,
+header .subtitle {
+  color: var(--color-steel-blue);
+  font-family: var(--font-caveat);
+  text-align: center;
+  margin-top: 0.5rem;
+  font-size: 1.25rem;
+}
+
+.line {
+  height: 1px;
+  width: 80%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(143, 163, 184, 0.05) 20%,
+    rgba(143, 163, 184, 0.4) 40%,
+    rgba(143, 163, 184, 0.9) 50%,
+    rgba(143, 163, 184, 0.4) 60%,
+    rgba(143, 163, 184, 0.05) 80%,
+    transparent 100%
+  );
+  margin: 1rem auto;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.active-votes-list-container {
+  position: relative;
+  width: 80%;
+  margin: 0 auto;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.active-votes-list-container::before {
+  content: '';
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(143, 163, 184, 0.9) 10%,
+    rgba(143, 163, 184, 0.05) 90%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+.active-votes-list-container::after {
+  content: '';
+  display: inline-block;
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(143, 163, 184, 0.05) 10%,
+    rgba(143, 163, 184, 0.9) 90%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+.active-votes-list-title {
+  font-style: italic;
+  font-size: 1rem;
+  color: var(--color-midnight-elegance);
+  margin: 8px 8px 0 8px; 
+}
+
+.active-items-container {
+  display: block;
+  width: 100%;
+  border: 1px solid rgba(143, 163, 184, 0.4);
+}
+
+.no-active-votes {
+  text-align: center;
+  margin: 1rem auto;
+  color: gray;
+}
+
+.active-items-container-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px 5px 8px;
+}
+
+.item-number {
+  font-size: 12px;
+  color: var(--color-platinum);
+  height: 20px;
+  width: 30px;
+  background-color: rgba(143, 163, 184, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.item-date {
+  font-size: 12px;
+  color: var(--color-platinum);
+}
+
+.item-content-middle {
+  margin: 8px;
+}
+
+.item-title {
+  font-size: 14px;
+  color: var(--color-platinum);
+}
+
+.item-description {
+  font-size: 16px;
+  color: var(--color-platinum);
+  margin-top: 4px;
+}
+
+.item-votes {
+  margin: 8px auto;
+  width: 100%;
+  border: 1px solid rgba(143, 163, 184, 0.4);
+}
+
+.vote-counts {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  font-size: 12px;
+  margin-left: 5px;
+  margin-top: 5px;
+}
+
+.vote-counts .v {
+  margin-left: 5px;
+}
+
+.vote-for {
+  color: rgb(8, 198, 110);
+}
+
+.vote-against {
+  color: rgb(215, 16, 63);
+}
+
+.vote-abstain {
+  color: var(--color-steel-blue);
+}
+
+.vote-turnout {
+  color: var(--color-platinum);
+}
+
+.vote-progressbar {
+  width: 100%;
+  height: 5px;
+  background: white;
+  margin: 8px 8px 8px 0px;
+  position: relative;
+}
+
+.vp {
+  height: 100%;
+  background: rgb(27, 224, 13);
+}
+
+.vp-for {
+  background: rgb(8, 198, 110);
+}
+
+.vp-against {
+  background: rgb(215, 16, 63);
+}
+
+.vp-abstain {
+  background: var(--color-steel-blue);
+}
+
+.item-footer {
+  margin: 8px;
+}
+
+.item-proposer {
+  font-size: 12px;
+}
+
+.ai-agent-prompt-box {
+  margin: 50px auto;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  width: 80%;
+  max-width: 400px;
+  padding: 8px;
+  position: relative;
 }
 
 /* Custom Cyberpunk Gradients & Animations */
@@ -51,7 +288,7 @@
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #08090d;
+  background: #050505;
 }
 ::-webkit-scrollbar-thumb {
   background: #1f293d;

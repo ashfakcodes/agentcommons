@@ -1,6 +1,18 @@
-node_modules
-.cache
-cache
-artifacts
-typechain-types
+node_modules/
+.cache/
+cache/
+artifacts/
+typechain-types/
+coverage/
+.nyc_output/
 .env
+.env*
+*.deployment
+secrets/
+*.key
+*.pem
+*.keystore
+
+# Exceptions for template files
+!.env*.example
+!.env.deployment.example

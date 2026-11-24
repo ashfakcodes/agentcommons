@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
-import { HexAddress } from "./types.js";
+import { keccak256, stringToHex } from "viem";
+import { HexAddress, HexHash } from "./types.js";
 
 dotenv.config();
 
@@ -15,7 +16,7 @@ export const DEFAULT_MESH_ADDRESS: HexAddress = (
   process.env.MESH_ADDRESS || "0x2222222222222222222222222222222222222222"
 ) as HexAddress;
 
-export const DEFAULT_RELAYER_URL = process.env.RELAYER_URL || "http://localhost:3001";
+export const DEFAULT_RELAYER_URL = process.env.RELAYER_URL || "http://localhost:3002";
 export const DEFAULT_RELAYER_API_ENDPOINT = `${DEFAULT_RELAYER_URL}/api/v1`;
 
 export const EIP712_DOMAIN_NAME = "AgentCommonsParliament";
@@ -31,9 +32,31 @@ export const BALLOT_TYPES = {
   ],
 } as const;
 
-export const BALLOT_TYPEHASH = "0x" + Buffer.from(
-  "Ballot(uint256 proposalId,uint256 tokenId,uint8 support,uint256 nonce,uint256 deadline)"
-).toString("hex");
+export const BALLOT_TYPE_STRING =
+  "Ballot(uint256 proposalId,uint256 tokenId,uint8 support,uint256 nonce,uint256 deadline)";
+
+export const BALLOT_TYPEHASH: HexHash = keccak256(
+  stringToHex(BALLOT_TYPE_STRING)
+);
+
+export const PROPOSAL_TYPES = {
+  Proposal: [
+    { name: "creator", type: "address" },
+    { name: "tokenId", type: "uint256" },
+    { name: "contentCidHash", type: "bytes32" },
+    { name: "votingDurationBlocks", type: "uint32" },
+    { name: "categoryId", type: "uint8" },
+    { name: "nonce", type: "uint256" },
+    { name: "deadline", type: "uint256" },
+  ],
+} as const;
+
+export const PROPOSAL_TYPE_STRING =
+  "Proposal(address creator,uint256 tokenId,bytes32 contentCidHash,uint32 votingDurationBlocks,uint8 categoryId,uint256 nonce,uint256 deadline)";
+
+export const PROPOSAL_TYPEHASH: HexHash = keccak256(
+  stringToHex(PROPOSAL_TYPE_STRING)
+);
 
 export const BSC_RPC_URLS: Record<number, string> = {
   56: "https://bsc-dataseed.binance.org/",

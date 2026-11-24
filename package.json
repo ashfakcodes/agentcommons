@@ -11,6 +11,7 @@
     "test:all": "npm run test:contracts && npm run test:server && npm run test:agent && npm run test:cli",
     "simulate": "npm --prefix cli run simulate:all",
     "simulate:stress": "npm --prefix cli run simulate:stress",
+    "benchmark": "npm --prefix server run benchmark",
     "build:contracts": "npm --prefix contracts run compile",
     "build:server": "npm --prefix server run build",
     "build:agent": "npm --prefix agent run build",

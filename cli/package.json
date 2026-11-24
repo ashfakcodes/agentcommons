@@ -9,6 +9,7 @@
     "simulate:mesh": "node ../server/node_modules/tsx/dist/cli.mjs agent-simulator.ts --mode mesh",
     "simulate:all": "node ../server/node_modules/tsx/dist/cli.mjs agent-simulator.ts --mode all --count 36",
     "simulate:stress": "node ../server/node_modules/tsx/dist/cli.mjs agent-simulator.ts --mode stress --count 40",
+    "headless": "node ../server/node_modules/tsx/dist/cli.mjs src/headless-agent-example.ts",
     "baw-agent": "node ../server/node_modules/tsx/dist/cli.mjs baw-agent.ts",
     "test": "node ../server/node_modules/tsx/dist/cli.mjs test/simulator.test.ts"
   },

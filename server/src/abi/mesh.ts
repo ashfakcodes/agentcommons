@@ -1,96 +1,608 @@
 export const MeshAbi = [
   {
-    type: "constructor",
-    inputs: [
-      { name: "_agentIdRegistrar", type: "address", internalType: "address" },
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_agentIdRegistrar",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_genesisTokenId",
+        "type": "uint256"
+      }
     ],
-    stateMutability: "nonpayable",
+    "stateMutability": "nonpayable",
+    "type": "constructor"
   },
   {
-    type: "function",
-    name: "AGENT_ID_REGISTRAR",
-    inputs: [],
-    outputs: [{ name: "", type: "address", internalType: "contract IERC721" }],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "getEdgeKey",
-    inputs: [
-      { name: "a", type: "uint256", internalType: "uint256" },
-      { name: "b", type: "uint256", internalType: "uint256" },
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "edgeKey",
+        "type": "bytes32"
+      }
     ],
-    outputs: [{ name: "", type: "bytes32", internalType: "bytes32" }],
-    stateMutability: "pure",
+    "name": "AlreadyMutuallyConnected",
+    "type": "error"
   },
   {
-    type: "function",
-    name: "meshEdges",
-    inputs: [{ name: "", type: "bytes32", internalType: "bytes32" }],
-    outputs: [
-      { name: "establishedAt", type: "uint32", internalType: "uint32" },
-      { name: "capabilityMask", type: "uint16", internalType: "uint16" },
-      { name: "isMutual", type: "bool", internalType: "bool" },
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "fromTokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "toTokenId",
+        "type": "uint256"
+      }
     ],
-    stateMutability: "view",
+    "name": "NoPendingPingToCancel",
+    "type": "error"
   },
   {
-    type: "function",
-    name: "pendingPings",
-    inputs: [
-      { name: "", type: "uint256", internalType: "uint256" },
-      { name: "", type: "uint256", internalType: "uint256" },
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "edgeKey",
+        "type": "bytes32"
+      }
     ],
-    outputs: [{ name: "", type: "uint32", internalType: "uint32" }],
-    stateMutability: "view",
+    "name": "NotMutuallyConnected",
+    "type": "error"
   },
   {
-    type: "function",
-    name: "totalConnections",
-    inputs: [{ name: "", type: "uint256", internalType: "uint256" }],
-    outputs: [{ name: "", type: "uint32", internalType: "uint32" }],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "ping",
-    inputs: [
-      { name: "_fromTokenId", type: "uint256", internalType: "uint256" },
-      { name: "_toTokenId", type: "uint256", internalType: "uint256" },
-      { name: "_capabilities", type: "uint16", internalType: "uint16" },
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "caller",
+        "type": "address"
+      }
     ],
-    outputs: [],
-    stateMutability: "nonpayable",
+    "name": "NotTokenOwner",
+    "type": "error"
   },
   {
-    type: "function",
-    name: "batchReciprocate",
-    inputs: [
-      { name: "_myTokenId", type: "uint256", internalType: "uint256" },
-      { name: "_peerTokenIds", type: "uint256[]", internalType: "uint256[]" },
-      { name: "_capabilities", type: "uint16", internalType: "uint16" },
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "fromTokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "toTokenId",
+        "type": "uint256"
+      }
     ],
-    outputs: [],
-    stateMutability: "nonpayable",
+    "name": "PingAlreadyPending",
+    "type": "error"
   },
   {
-    type: "event",
-    name: "HandshakePinged",
-    inputs: [
-      { name: "fromTokenId", type: "uint256", indexed: true, internalType: "uint256" },
-      { name: "toTokenId", type: "uint256", indexed: true, internalType: "uint256" },
-      { name: "timestamp", type: "uint32", indexed: false, internalType: "uint32" },
-    ],
-    anonymous: false,
+    "inputs": [],
+    "name": "ReentrancyGuardReentrantCall",
+    "type": "error"
   },
   {
-    type: "event",
-    name: "MutualHandshakeCompleted",
-    inputs: [
-      { name: "tokenIdA", type: "uint256", indexed: true, internalType: "uint256" },
-      { name: "tokenIdB", type: "uint256", indexed: true, internalType: "uint256" },
-      { name: "edgeKey", type: "bytes32", indexed: true, internalType: "bytes32" },
-    ],
-    anonymous: false,
+    "inputs": [],
+    "name": "SelfHandshakeForbidden",
+    "type": "error"
   },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "targetTokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "TargetAgentDoesNotExist",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "tokenIdA",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "tokenIdB",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "edgeKey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "EdgeDisconnected",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "fromTokenId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "toTokenId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint32",
+        "name": "timestamp",
+        "type": "uint32"
+      }
+    ],
+    "name": "HandshakePinged",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "operator",
+        "type": "address"
+      }
+    ],
+    "name": "MeshOperatorSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "tokenIdA",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "tokenIdB",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "edgeKey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "MutualHandshakeCompleted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "fromTokenId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "toTokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "PendingPingCancelled",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "AGENT_ID_REGISTRAR",
+    "outputs": [
+      {
+        "internalType": "contract IERC721",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "GENESIS_AGENT_NAME",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "GENESIS_BEACON_TOKEN_ID",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_myTokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "_peerTokenIds",
+        "type": "uint256[]"
+      },
+      {
+        "internalType": "uint16",
+        "name": "_capabilities",
+        "type": "uint16"
+      }
+    ],
+    "name": "batchReciprocate",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_fromTokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_toTokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "cancelPendingPing",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_fromTokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_toTokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "disconnect",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "a",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "b",
+        "type": "uint256"
+      }
+    ],
+    "name": "getEdge",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint32",
+            "name": "establishedAt",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint16",
+            "name": "capabilityMask",
+            "type": "uint16"
+          },
+          {
+            "internalType": "bool",
+            "name": "isMutual",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct AgentCommonsMesh.HandshakeEdge",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "a",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "b",
+        "type": "uint256"
+      }
+    ],
+    "name": "getEdgeKey",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "pure",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "fromTokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "toTokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "hasPendingPing",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "a",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "b",
+        "type": "uint256"
+      }
+    ],
+    "name": "isEdgeConnected",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "isGenesisBeacon",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "name": "meshEdges",
+    "outputs": [
+      {
+        "internalType": "uint32",
+        "name": "establishedAt",
+        "type": "uint32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "capabilityMask",
+        "type": "uint16"
+      },
+      {
+        "internalType": "bool",
+        "name": "isMutual",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "meshOperators",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "pendingCapabilities",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "pendingPings",
+    "outputs": [
+      {
+        "internalType": "uint32",
+        "name": "",
+        "type": "uint32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_fromTokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_toTokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint16",
+        "name": "_capabilities",
+        "type": "uint16"
+      }
+    ],
+    "name": "ping",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_tokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "_operator",
+        "type": "address"
+      }
+    ],
+    "name": "setMeshOperator",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "totalConnections",
+    "outputs": [
+      {
+        "internalType": "uint32",
+        "name": "",
+        "type": "uint32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
 ] as const;

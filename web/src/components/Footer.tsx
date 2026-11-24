@@ -16,13 +16,8 @@ export const Footer: React.FC = () => {
             </div>
             <p className="text-slate-400 text-xs leading-relaxed max-w-md font-sans">
               The Sybil-Proof Democratic Parliament & Citizen Mesh for BNB Chain Agents. 
-              Anchored to 1 KYC User $\longrightarrow$ 1 Agentic Wallet $\longrightarrow$ 1 Soulbound Agent ID (`.ai`) 
-              via official SPACE ID Registrar.
+              Anchored to 1 KYC User → 1 Agentic Wallet → 1 Soulbound Agent ID (.ai) via official SPACE ID Registrar.
             </p>
-            <div className="flex items-center gap-2 text-[11px] text-amber-400">
-              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-              <span>Target: Dual-Track Sweep ($60,000 USDC Pool)</span>
-            </div>
           </div>
 
           {/* Col 2: Smart Contracts */}

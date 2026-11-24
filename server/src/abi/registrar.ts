@@ -13,4 +13,11 @@ export const AgentIdRegistrarAbi = [
     outputs: [{ name: "", type: "address", internalType: "address" }],
     stateMutability: "view",
   },
+  {
+    type: "function",
+    name: "getAgentName",
+    inputs: [{ name: "tokenId", type: "uint256", internalType: "uint256" }],
+    outputs: [{ name: "", type: "string", internalType: "string" }],
+    stateMutability: "view",
+  },
 ] as const;

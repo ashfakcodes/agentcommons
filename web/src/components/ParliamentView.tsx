@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Vote, PlusCircle, CheckCircle2, Clock, ShieldCheck, Flame, ExternalLink, Filter, Sparkles, Copy, Check } from 'lucide-react';
+import { Vote, PlusCircle, CheckCircle2, XCircle, Filter, Sparkles, ExternalLink, ChevronDown } from 'lucide-react';
 import { Proposal, AgentNode, SupportType } from '../types';
 import { VoteModal } from './VoteModal';
 import { CreateProposalModal } from './CreateProposalModal';
@@ -8,8 +8,6 @@ import { PARLIAMENT_ADDRESS, BSC_CONFIG } from '../constants/contracts';
 interface ParliamentViewProps {
   proposals: Proposal[];
   activeAgent: AgentNode;
-  isWalletConnected: boolean;
-  walletAddress?: string;
   onVoteCast: (proposalId: number, support: SupportType) => void;
   onCreateProposal: (newProposal: Proposal) => void;
 }
@@ -17,15 +15,13 @@ interface ParliamentViewProps {
 export const ParliamentView: React.FC<ParliamentViewProps> = ({
   proposals,
   activeAgent,
-  isWalletConnected,
-  walletAddress,
   onVoteCast,
   onCreateProposal,
 }) => {
   const [selectedProposal, setSelectedProposal] = useState<Proposal | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isArchiveOpen, setIsArchiveOpen] = useState(false);
   const [filterCategory, setFilterCategory] = useState<string>('All');
-  const [copiedHash, setCopiedHash] = useState<string | null>(null);
 
   const categories = ['All', 'Governance', 'Protocol & Mesh', 'Gas Subsidy', 'Security & Identity'];
 
@@ -34,75 +30,38 @@ export const ParliamentView: React.FC<ParliamentViewProps> = ({
     return p.categoryName === filterCategory;
   });
 
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedHash(text);
-    setTimeout(() => setCopiedHash(null), 2000);
+  const activeProposals = filteredProposals.filter(
+    (p) => p.status === 'Active' || !p.status || p.status === 'Pending'
+  );
+
+  const endedProposals = filteredProposals.filter(
+    (p) => p.status === 'Succeeded' || p.status === 'Defeated'
+  );
+
+  const formatVoteDate = (timestamp?: number) => {
+    if (!timestamp) return 'Posted on: 19 Nov 2026';
+    const d = new Date(timestamp);
+    const day = d.getDate();
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = months[d.getMonth()];
+    const year = d.getFullYear();
+    return `Posted on: ${day} ${month} ${year}`;
   };
 
   return (
-    <div className="space-y-6">
-      {/* Parliament Hero Banner */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#0d1322] via-[#0f172a] to-[#120e24] border border-cyan-500/30 p-6 md:p-8 shadow-2xl">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-cyan-500/5 rounded-full blur-3xl pointer-events-none" />
-        <div className="relative z-10 max-w-3xl space-y-3">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 text-xs font-mono">
-            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
-            <span>Agent Commons Democratic Parliament</span>
-            <span className="text-slate-500">|</span>
-            <span className="text-amber-400">1-Agent-1-Vote</span>
-          </div>
-
-          <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
-            Sybil-Proof On-Chain Governance for AI Agents
-          </h1>
-
-          <p className="text-sm text-slate-300 leading-relaxed">
-            Eliminates plutocracy and 10,000-wallet Sybil attacks. Voting eligibility is strictly tethered to
-            <strong className="text-amber-300"> SPACE ID Soulbound Agent IDs (`.ai`)</strong> anchored to verified Binance Agentic Wallets. 
-            All ballots are signed gaslessly via EIP-712 and bundled into batch transactions sponsored by <strong className="text-rose-400">scarlet.ai</strong>.
-          </p>
-
-          <div className="flex flex-wrap items-center gap-3 pt-2">
-            <button
-              onClick={() => setIsCreateModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold shadow-cyan-glow transition-all"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>Submit Initiative</span>
-            </button>
-
-            <a
-              href={`${BSC_CONFIG.blockExplorerUrl}/address/${PARLIAMENT_ADDRESS}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-mono text-slate-300 hover:text-cyan-300 transition-colors"
-            >
-              <span>Parliament Contract</span>
-              <ExternalLink className="w-3.5 h-3.5 text-cyan-400" />
-            </a>
-
-            <div className="flex items-center gap-1 text-[11px] font-mono text-emerald-400 bg-emerald-950/60 px-3 py-1.5 rounded-xl border border-emerald-800/80">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Anti-Flash-Loan Snapshot Protection Active</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Filter and Stats Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        {/* Category Tabs */}
+    <div className="w-full space-y-6">
+      {/* Category Filter and Submit Proposal Actions */}
+      <div className="w-[80%] mx-auto flex flex-wrap items-center justify-between gap-3 px-1">
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-          <Filter className="w-4 h-4 text-slate-400 mr-1 shrink-0" />
+          <Filter className="w-3.5 h-3.5 text-[#8fa3b8] mr-1 shrink-0" />
           {categories.map((cat) => (
             <button
               key={cat}
               onClick={() => setFilterCategory(cat)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
+              className={`px-2.5 py-1 rounded text-xs transition-all ${
                 filterCategory === cat
-                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 shadow-sm'
-                  : 'bg-slate-900/80 text-slate-400 border border-slate-800 hover:text-white hover:border-slate-700'
+                  ? 'bg-[#8fa3b8]/20 text-[#e5e4e2] border border-[#8fa3b8]/60 font-semibold'
+                  : 'bg-transparent text-[#8fa3b8] border border-transparent hover:text-[#e5e4e2] hover:border-white/10'
               }`}
             >
               {cat}
@@ -110,141 +69,404 @@ export const ParliamentView: React.FC<ParliamentViewProps> = ({
           ))}
         </div>
 
-        <div className="text-xs font-mono text-slate-400">
-          Showing <span className="text-white font-bold">{filteredProposals.length}</span> initiatives
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-medium transition-all shadow-sm"
+          >
+            <PlusCircle className="w-3.5 h-3.5" />
+            <span>Submit Proposal</span>
+          </button>
+
+          <a
+            href={`${BSC_CONFIG.blockExplorerUrl}/address/${PARLIAMENT_ADDRESS}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded border border-white/10 text-xs text-[#8fa3b8] hover:text-[#e5e4e2] transition-colors"
+            title="View Parliament Contract on BscScan"
+          >
+            <span>Contract</span>
+            <ExternalLink className="w-3 h-3 text-cyan-400" />
+          </a>
         </div>
       </div>
 
-      {/* Proposals Grid / Cards */}
-      <div className="space-y-4">
-        {filteredProposals.map((proposal) => {
-          const totalVotes = proposal.forVotes + proposal.againstVotes + proposal.abstainVotes;
-          const forPct = totalVotes > 0 ? (proposal.forVotes / totalVotes) * 100 : 0;
-          const againstPct = totalVotes > 0 ? (proposal.againstVotes / totalVotes) * 100 : 0;
-          const abstainPct = totalVotes > 0 ? (proposal.abstainVotes / totalVotes) * 100 : 0;
-          const hasVoted = proposal.votedByCaller !== undefined;
+      {/* Active Votes List Container matching web/xhomepage.html exactly */}
+      <div className="active-votes-list-container">
+        <div className="flex items-center justify-between">
+          <legend className="active-votes-list-title">Active votes</legend>
+          <span className="text-xs text-[#8fa3b8] mr-2 font-mono">
+            {activeProposals.length} active {activeProposals.length === 1 ? 'vote' : 'votes'}
+          </span>
+        </div>
 
-          return (
-            <div
-              key={proposal.id}
-              className="rounded-2xl bg-[#0f121d] border border-slate-800/90 hover:border-cyan-500/40 p-5 md:p-6 transition-all shadow-lg space-y-4"
-            >
-              {/* Proposal Header */}
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-1 rounded-md text-[11px] font-mono font-bold bg-cyan-950/80 text-cyan-400 border border-cyan-800">
-                    ACP-00{proposal.id}
-                  </span>
-                  <span className="px-2.5 py-1 rounded-md text-[11px] font-mono bg-purple-950/80 text-purple-300 border border-purple-800">
-                    {proposal.categoryName}
-                  </span>
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-mono bg-emerald-950/80 text-emerald-300 border border-emerald-800">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    {proposal.status}
-                  </span>
-                </div>
+        {activeProposals.length === 0 ? (
+          <p className="no-active-votes">No active votes right now</p>
+        ) : (
+          <table>
+            <tbody>
+              {activeProposals.map((proposal) => {
+                const totalVotes = proposal.forVotes + proposal.againstVotes + proposal.abstainVotes;
+                const forPct = totalVotes > 0 ? (proposal.forVotes / totalVotes) * 100 : 0;
+                const againstPct = totalVotes > 0 ? (proposal.againstVotes / totalVotes) * 100 : 0;
+                const abstainPct = totalVotes > 0 ? (proposal.abstainVotes / totalVotes) * 100 : 0;
+                const hasVoted = proposal.votedByCaller !== undefined;
 
-                <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
-                  <Clock className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Ends block #{proposal.endBlock}</span>
-                  <span className="text-slate-600">|</span>
-                  <span className="text-slate-500">Snapshot #{proposal.snapshotBlock}</span>
-                </div>
-              </div>
+                return (
+                  <tr key={proposal.id}>
+                    <td style={{ paddingBottom: '14px', border: 'none' }}>
+                      <div className="active-items-container">
+                        {/* Header: #ID and Posted Date */}
+                        <div className="active-items-container-header">
+                          <p className="item-number">#{proposal.id}</p>
+                          <p className="item-date">{formatVoteDate(proposal.createdAt)}</p>
+                        </div>
 
-              {/* Title & Description */}
-              <div>
-                <h3 className="text-lg font-bold text-white tracking-tight">
-                  {proposal.title}
-                </h3>
-                <p className="text-xs sm:text-sm text-slate-300 mt-1.5 leading-relaxed">
-                  {proposal.description}
-                </p>
-              </div>
+                        {/* Content Middle: Title, Description, and Live Votes Box */}
+                        <div className="item-content-middle">
+                          <p className="item-title">{proposal.title}</p>
+                          <p className="item-description">{proposal.description}</p>
 
-              {/* Live Vote Meter (Stacked Progress Bar) */}
-              <div className="p-3.5 bg-slate-950/70 rounded-xl border border-slate-800 space-y-2">
-                <div className="flex items-center justify-between text-xs font-mono">
-                  <div className="flex items-center gap-3">
-                    <span className="text-emerald-400 font-bold">
-                      FOR: {proposal.forVotes} ({forPct.toFixed(1)}%)
-                    </span>
-                    <span className="text-rose-400 font-bold">
-                      AGAINST: {proposal.againstVotes} ({againstPct.toFixed(1)}%)
-                    </span>
-                    <span className="text-slate-400 font-bold">
-                      ABSTAIN: {proposal.abstainVotes} ({abstainPct.toFixed(1)}%)
-                    </span>
-                  </div>
-                  <span className="text-slate-400">
-                    Turnout: <strong className="text-white">{totalVotes}</strong> Agents
-                  </span>
-                </div>
+                          {/* Vote Statistics Box */}
+                          <div className="item-votes">
+                            <div className="vote-counts">
+                              <span className="v vote-for">For: {proposal.forVotes}</span>
+                              <span className="v vote-against">Against: {proposal.againstVotes}</span>
+                              <span className="v vote-abstain">Abstain: {proposal.abstainVotes}</span>
+                              <span className="v vote-turnout">Turnout: {totalVotes} agents</span>
+                            </div>
 
-                {/* Progress bar */}
-                <div className="h-3 w-full rounded-full bg-slate-900 overflow-hidden flex border border-slate-800">
-                  <div
-                    style={{ width: `${forPct}%` }}
-                    className="bg-emerald-500 transition-all duration-500 shadow-sm"
-                    title={`For: ${proposal.forVotes}`}
-                  />
-                  <div
-                    style={{ width: `${againstPct}%` }}
-                    className="bg-rose-500 transition-all duration-500 shadow-sm"
-                    title={`Against: ${proposal.againstVotes}`}
-                  />
-                  <div
-                    style={{ width: `${abstainPct}%` }}
-                    className="bg-slate-600 transition-all duration-500 shadow-sm"
-                    title={`Abstain: ${proposal.abstainVotes}`}
-                  />
-                </div>
-              </div>
+                            {/* Multi-segment Progress Bar */}
+                            <div
+                              className="vote-progressbar"
+                              style={{
+                                display: 'flex',
+                                width: 'calc(100% - 16px)',
+                                height: '5px',
+                                background: 'rgba(255, 255, 255, 0.1)',
+                                margin: '8px',
+                                overflow: 'hidden',
+                                borderRadius: '1px',
+                              }}
+                            >
+                              <span
+                                className="vp vp-for"
+                                style={{
+                                  width: `${forPct}%`,
+                                  height: '100%',
+                                  backgroundColor: 'rgb(8, 198, 110)',
+                                  transition: 'width 0.4s ease',
+                                }}
+                                title={`For: ${proposal.forVotes} (${forPct.toFixed(1)}%)`}
+                              />
+                              <span
+                                className="vp vp-against"
+                                style={{
+                                  width: `${againstPct}%`,
+                                  height: '100%',
+                                  backgroundColor: 'rgb(215, 16, 63)',
+                                  transition: 'width 0.4s ease',
+                                }}
+                                title={`Against: ${proposal.againstVotes} (${againstPct.toFixed(1)}%)`}
+                              />
+                              <span
+                                className="vp vp-abstain"
+                                style={{
+                                  width: `${abstainPct}%`,
+                                  height: '100%',
+                                  backgroundColor: 'var(--color-steel-blue, #8fa3b8)',
+                                  transition: 'width 0.4s ease',
+                                }}
+                                title={`Abstain: ${proposal.abstainVotes} (${abstainPct.toFixed(1)}%)`}
+                              />
+                            </div>
+                          </div>
+                        </div>
 
-              {/* Footer details & Action */}
-              <div className="flex flex-wrap items-center justify-between gap-4 pt-1">
-                <div className="flex items-center gap-3 text-xs font-mono text-slate-400">
-                  <span>Proposer: <strong className="text-cyan-300">{proposal.creatorName}</strong></span>
-                  <span className="text-slate-600">•</span>
-                  <div className="flex items-center gap-1">
-                    <span>IPFS: {proposal.contentCidHash.slice(0, 10)}...</span>
-                    <button
-                      onClick={() => handleCopy(proposal.contentCidHash)}
-                      className="p-1 hover:text-white"
-                      title="Copy Content Hash"
-                    >
-                      {copiedHash === proposal.contentCidHash ? (
-                        <Check className="w-3 h-3 text-emerald-400" />
-                      ) : (
-                        <Copy className="w-3 h-3" />
-                      )}
-                    </button>
-                  </div>
-                </div>
+                        {/* Footer: scarlet.ai Proposer Badge & Vote Modal Trigger */}
+                        <div
+                          className="item-footer"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: '8px',
+                          }}
+                        >
+                          <div className="flex items-center gap-2">
+                            <p
+                              className="item-proposer"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                backgroundColor: 'rgba(143, 163, 184, 0.08)',
+                                border: '1px solid rgba(143, 163, 184, 0.25)',
+                                color: 'var(--color-platinum, #e5e4e2)',
+                                fontSize: '12px',
+                                margin: 0,
+                              }}
+                            >
+                              <span
+                                style={{
+                                  width: '6px',
+                                  height: '6px',
+                                  borderRadius: '50%',
+                                  backgroundColor: '#00f0ff',
+                                  display: 'inline-block',
+                                }}
+                              />
+                              <span>{proposal.creatorName || 'scarlet.ai'}</span>
+                            </p>
 
-                {/* Vote CTA */}
-                <div>
-                  {hasVoted ? (
-                    <div className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-950/60 border border-emerald-500/50 text-emerald-300 text-xs font-mono font-bold">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                      <span>
-                        Voted {proposal.votedByCaller === 1 ? 'FOR' : proposal.votedByCaller === 0 ? 'AGAINST' : 'ABSTAIN'} (#{activeAgent.tokenId})
-                      </span>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setSelectedProposal(proposal)}
-                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold shadow-cyan-glow transition-all"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-cyan-200" />
-                      <span>1-Click Gasless Vote</span>
-                    </button>
-                  )}
-                </div>
-              </div>
+                            {proposal.categoryName && (
+                              <span
+                                style={{
+                                  fontSize: '11px',
+                                  color: 'var(--color-steel-blue, #8fa3b8)',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                                  border: '1px solid rgba(255, 255, 255, 0.05)',
+                                }}
+                              >
+                                {proposal.categoryName}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Vote Modal Trigger */}
+                          <div>
+                            {hasVoted ? (
+                              <button
+                                onClick={() => setSelectedProposal(proposal)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1 rounded text-xs font-mono transition-all hover:brightness-110"
+                                style={{
+                                  backgroundColor: 'rgba(8, 198, 110, 0.12)',
+                                  border: '1px solid rgba(8, 198, 110, 0.35)',
+                                  color: 'rgb(8, 198, 110)',
+                                  cursor: 'pointer',
+                                }}
+                                title="Click to view or update vote"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>
+                                  Voted {proposal.votedByCaller === 1 ? 'FOR' : proposal.votedByCaller === 0 ? 'AGAINST' : 'ABSTAIN'}
+                                </span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => setSelectedProposal(proposal)}
+                                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded text-xs font-medium transition-all hover:opacity-90 active:scale-95"
+                                style={{
+                                  background: 'linear-gradient(90deg, #06b6d4, #2563eb)',
+                                  color: '#ffffff',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  boxShadow: '0 0 10px rgba(6, 182, 212, 0.25)',
+                                }}
+                              >
+                                <Sparkles className="w-3.5 h-3.5" />
+                                <span>Vote</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Concluded Polls Archive (Collapsible) */}
+      <div className="active-votes-list-container">
+        <button
+          onClick={() => setIsArchiveOpen((prev) => !prev)}
+          className="w-full flex items-center justify-between p-1 text-left transition-colors hover:opacity-90 group focus:outline-none cursor-pointer"
+        >
+          <div>
+            <span className="active-votes-list-title flex items-center gap-2">
+              Concluded Polls Archive
+            </span>
+            <p className="text-[11px] text-[#8fa3b8] font-mono mt-0.5">
+              Historical democratic decisions anchored to SPACE ID Agent ID snapshots
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2.5 mr-2">
+            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono bg-white/5 border border-white/10 text-[#8fa3b8]">
+              {endedProposals.length} concluded {endedProposals.length === 1 ? 'poll' : 'polls'}
+            </span>
+            <div className={`p-1 rounded text-[#8fa3b8] transition-transform duration-300 ${isArchiveOpen ? 'rotate-180' : ''}`}>
+              <ChevronDown className="w-4 h-4" />
             </div>
-          );
-        })}
+          </div>
+        </button>
+
+        {isArchiveOpen && (
+          <div className="mt-4 pt-4 border-t border-white/5 animate-fadeIn">
+            {endedProposals.length === 0 ? (
+              <p className="no-active-votes py-6">No concluded polls matching the current category filter</p>
+            ) : (
+              <table>
+                <tbody>
+                  {endedProposals.map((proposal) => {
+                    const totalVotes = proposal.forVotes + proposal.againstVotes + proposal.abstainVotes;
+                    const forPct = totalVotes > 0 ? (proposal.forVotes / totalVotes) * 100 : 0;
+                    const againstPct = totalVotes > 0 ? (proposal.againstVotes / totalVotes) * 100 : 0;
+                    const abstainPct = totalVotes > 0 ? (proposal.abstainVotes / totalVotes) * 100 : 0;
+                    const isPassed = proposal.status === 'Succeeded';
+
+                    return (
+                      <tr key={proposal.id}>
+                        <td style={{ paddingBottom: '14px', border: 'none' }}>
+                          <div className="active-items-container opacity-90 hover:opacity-100 transition-opacity">
+                            {/* Header: #ID, Outcome Badge, and Concluded Date */}
+                            <div className="active-items-container-header flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <p className="item-number">#{proposal.id}</p>
+                                {isPassed ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-mono">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    <span>PASSED</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30 font-mono">
+                                    <XCircle className="w-3 h-3" />
+                                    <span>DEFEATED</span>
+                                  </span>
+                                )}
+                              </div>
+                              <p className="item-date">{formatVoteDate(proposal.createdAt)}</p>
+                            </div>
+
+                            {/* Content Middle */}
+                            <div className="item-content-middle">
+                              <p className="item-title">{proposal.title}</p>
+                              <p className="item-description">{proposal.description}</p>
+
+                              {/* Vote Statistics Box */}
+                              <div className="item-votes">
+                                <div className="vote-counts">
+                                  <span className="v vote-for">Final For: {proposal.forVotes} ({forPct.toFixed(1)}%)</span>
+                                  <span className="v vote-against">Against: {proposal.againstVotes} ({againstPct.toFixed(1)}%)</span>
+                                  <span className="v vote-abstain">Abstain: {proposal.abstainVotes}</span>
+                                  <span className="v vote-turnout">Final Turnout: {totalVotes} agents</span>
+                                </div>
+
+                                {/* Progress Bar */}
+                                <div
+                                  className="vote-progressbar"
+                                  style={{
+                                    display: 'flex',
+                                    width: 'calc(100% - 16px)',
+                                    height: '5px',
+                                    background: 'rgba(255, 255, 255, 0.1)',
+                                    margin: '8px',
+                                    overflow: 'hidden',
+                                    borderRadius: '1px',
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      width: `${forPct}%`,
+                                      height: '100%',
+                                      backgroundColor: 'rgb(8, 198, 110)',
+                                    }}
+                                  />
+                                  <span
+                                    style={{
+                                      width: `${againstPct}%`,
+                                      height: '100%',
+                                      backgroundColor: 'rgb(215, 16, 63)',
+                                    }}
+                                  />
+                                  <span
+                                    style={{
+                                      width: `${abstainPct}%`,
+                                      height: '100%',
+                                      backgroundColor: 'var(--color-steel-blue, #8fa3b8)',
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Footer: Author & Archived Status */}
+                            <div
+                              className="item-footer"
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                flexWrap: 'wrap',
+                                gap: '8px',
+                              }}
+                            >
+                              <div className="flex items-center gap-2">
+                                <p
+                                  className="item-proposer"
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '2px 8px',
+                                    borderRadius: '4px',
+                                    backgroundColor: 'rgba(143, 163, 184, 0.08)',
+                                    border: '1px solid rgba(143, 163, 184, 0.25)',
+                                    color: 'var(--color-platinum, #e5e4e2)',
+                                    fontSize: '12px',
+                                    margin: 0,
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      width: '6px',
+                                      height: '6px',
+                                      borderRadius: '50%',
+                                      backgroundColor: '#00f0ff',
+                                      display: 'inline-block',
+                                    }}
+                                  />
+                                  <span>{proposal.creatorName || 'scarlet.ai'}</span>
+                                </p>
+                                {proposal.categoryName && (
+                                  <span
+                                    style={{
+                                      fontSize: '11px',
+                                      color: 'var(--color-steel-blue, #8fa3b8)',
+                                      padding: '2px 6px',
+                                      borderRadius: '4px',
+                                      backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                                      border: '1px solid rgba(255, 255, 255, 0.05)',
+                                    }}
+                                  >
+                                    {proposal.categoryName}
+                                  </span>
+                                )}
+                              </div>
+
+                              <span className="text-[11px] font-mono text-[#8fa3b8] px-2.5 py-1 rounded bg-white/[0.03] border border-white/5">
+                                Concluded & Ratified
+                              </span>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Vote Modal */}
@@ -252,8 +474,6 @@ export const ParliamentView: React.FC<ParliamentViewProps> = ({
         <VoteModal
           proposal={selectedProposal}
           activeAgent={activeAgent}
-          isWalletConnected={isWalletConnected}
-          walletAddress={walletAddress}
           onClose={() => setSelectedProposal(null)}
           onVoteSuccess={(propId, support) => {
             onVoteCast(propId, support);
@@ -265,6 +485,7 @@ export const ParliamentView: React.FC<ParliamentViewProps> = ({
       {isCreateModalOpen && (
         <CreateProposalModal
           activeAgent={activeAgent}
+          existingProposals={proposals}
           onClose={() => setIsCreateModalOpen(false)}
           onCreateSuccess={(newProp) => {
             onCreateProposal(newProp);
@@ -275,3 +496,5 @@ export const ParliamentView: React.FC<ParliamentViewProps> = ({
     </div>
   );
 };
+
+export default ParliamentView;

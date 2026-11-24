@@ -17,6 +17,11 @@ import {
   MeshEdgeData,
   HexAddress,
   HexHash,
+  PollFilter,
+  PollDetails,
+  ProposalPublishParams,
+  SignedProposalPayload,
+  ProposalPublishResponse,
 } from "./types.js";
 import {
   DEFAULT_CHAIN_ID,
@@ -27,6 +32,8 @@ import {
   BSC_RPC_URLS,
 } from "./config.js";
 import { BawCliWrapper } from "./baw-cli-wrapper.js";
+import { PollExplorer } from "./poll-explorer.js";
+import { ProposalPublisher, StructuredProposalInput } from "./proposal-publisher.js";
 
 // Minimal ABIs for mesh calls
 const MESH_ABI = [
@@ -57,6 +64,8 @@ const MESH_ABI = [
 export class AgentCommonsSDK {
   public identity: AgentIdentity;
   public baw: BawCliWrapper;
+  public explorer: PollExplorer;
+  public publisher: ProposalPublisher;
   public parliamentAddress: HexAddress;
   public meshAddress: HexAddress;
   public chainId: number;
@@ -75,6 +84,17 @@ export class AgentCommonsSDK {
     this.meshAddress = options.meshAddress || DEFAULT_MESH_ADDRESS;
     this.relayerApiUrl = options.relayerApiUrl || DEFAULT_RELAYER_API_ENDPOINT;
     this.baw = new BawCliWrapper({ binanceChainId: this.chainId });
+    this.explorer = new PollExplorer({
+      relayerApiUrl: this.relayerApiUrl,
+      parliamentAddress: this.parliamentAddress,
+      chainId: this.chainId,
+    });
+    this.publisher = new ProposalPublisher({
+      relayerApiUrl: this.relayerApiUrl,
+      parliamentAddress: this.parliamentAddress,
+      chainId: this.chainId,
+      baw: this.baw,
+    });
   }
 
   /**
@@ -106,6 +126,7 @@ export class AgentCommonsSDK {
     support: VoteOption;
     nonce?: bigint | number;
     deadlineSecondsFromNow?: number;
+    rationale?: string;
   }): Promise<{
     ballot: SignedBallotPayload;
     relayerResponse: VoteSubmissionResponse;
@@ -130,6 +151,10 @@ export class AgentCommonsSDK {
       this.parliamentAddress,
       this.chainId
     );
+
+    if (params.rationale) {
+      signedBallot.rationale = params.rationale;
+    }
 
     const relayerResponse = await this.baw.submitBallotToRelayer(
       signedBallot,
@@ -173,7 +198,7 @@ export class AgentCommonsSDK {
     try {
       const res = await fetch(`${this.relayerApiUrl}/proposals`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const data = (await res.json()) as any;
       return Array.isArray(data) ? data : data.proposals || [];
     } catch (err: any) {
       return [];
@@ -191,5 +216,57 @@ export class AgentCommonsSDK {
     } catch (err: any) {
       return { nodes: [], totalNodes: 0 };
     }
+  }
+
+  /**
+   * Search and filter governance proposals with rich metadata
+   */
+  async explorePolls(filter?: PollFilter): Promise<PollDetails[]> {
+    return this.explorer.listPolls(filter);
+  }
+
+  /**
+   * Fetch rich details, tallies, quorum, and remaining time for a specific proposal
+   */
+  async getPoll(proposalId: bigint | number): Promise<PollDetails> {
+    return this.explorer.getPollDetails(proposalId);
+  }
+
+  /**
+   * Check if this agent is eligible to vote on a proposal
+   */
+  async checkEligibility(proposalId: bigint | number) {
+    return this.explorer.checkAgentEligibility(proposalId, this.identity.tokenId);
+  }
+
+  /**
+   * Publish a proposal 100% gaslessly via EIP-712 signature sponsored by scarlet.ai relayer
+   */
+  async publishProposalGasless(params: {
+    title: string;
+    description?: string;
+    motivation?: string;
+    actionItems?: string[] | string;
+    categoryId?: number;
+    votingDurationBlocks?: number;
+    deadlineSecondsFromNow?: number;
+    nonce?: bigint | number;
+    summary?: string;
+    impact?: string;
+  }) {
+    const input: StructuredProposalInput = {
+      title: params.title,
+      motivation: params.motivation || params.description || "Proposal submitted via AgentCommons SDK",
+      actionItems: params.actionItems || ["Execute proposed governance actions"],
+      categoryId: params.categoryId !== undefined ? params.categoryId : 1,
+      votingDurationBlocks: params.votingDurationBlocks,
+      summary: params.summary || params.description,
+      impact: params.impact,
+    };
+
+    return this.publisher.publishProposalGasless(input, this.identity, {
+      nonce: params.nonce,
+      deadlineSecondsFromNow: params.deadlineSecondsFromNow,
+    });
   }
 }

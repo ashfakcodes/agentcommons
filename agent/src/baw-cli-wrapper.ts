@@ -22,6 +22,8 @@ import {
   BawSignMessagePreviewResult,
   BawContractCallPreviewResult,
   BawExecutionResult,
+  SignedProposalPayload,
+  ProposalPublishResponse,
 } from "./types.js";
 import {
   DEFAULT_CHAIN_ID,
@@ -30,6 +32,7 @@ import {
   EIP712_DOMAIN_NAME,
   EIP712_DOMAIN_VERSION,
   BALLOT_TYPES,
+  PROPOSAL_TYPES,
   OFFICIAL_SPACE_ID_REGISTRAR,
 } from "./config.js";
 
@@ -295,7 +298,7 @@ export class BawCliWrapper {
     signedBallot: SignedBallotPayload,
     relayerApiUrl = DEFAULT_RELAYER_API_ENDPOINT
   ): Promise<VoteSubmissionResponse> {
-    const payload = {
+    const payload: Record<string, any> = {
       proposalId: signedBallot.proposalId.toString(),
       tokenId: signedBallot.tokenId.toString(),
       support: signedBallot.support,
@@ -304,6 +307,9 @@ export class BawCliWrapper {
       signature: signedBallot.signature,
       signer: signedBallot.signer,
     };
+    if (signedBallot.rationale) {
+      payload.rationale = signedBallot.rationale;
+    }
 
     try {
       const response = await fetch(`${relayerApiUrl}/vote/submit`, {
@@ -324,6 +330,123 @@ export class BawCliWrapper {
     } catch (err: any) {
       return {
         status: "error",
+        error: `Failed to connect to relayer at ${relayerApiUrl}: ${err.message}`,
+      };
+    }
+  }
+
+  /**
+   * Sign an EIP-712 proposal creation payload for gasless publishing
+   */
+  async signProposalDirect(
+    proposal: {
+      creator: HexAddress;
+      tokenId: bigint;
+      contentCidHash: HexHash;
+      votingDurationBlocks: number;
+      categoryId: number;
+      nonce: bigint;
+      deadline: bigint;
+    },
+    identity: AgentIdentity,
+    parliamentAddress?: HexAddress,
+    chainId?: number
+  ): Promise<HexSignature> {
+    if (!identity.privateKey) {
+      throw new Error(`Private key required to sign proposal directly for ${identity.name}`);
+    }
+
+    const effectiveChainId = chainId || this.config.binanceChainId;
+    const verifyingContract = parliamentAddress || DEFAULT_PARLIAMENT_ADDRESS;
+
+    const domain = {
+      name: EIP712_DOMAIN_NAME,
+      version: EIP712_DOMAIN_VERSION,
+      chainId: effectiveChainId,
+      verifyingContract,
+    };
+
+    const account = privateKeyToAccount(identity.privateKey);
+
+    const signature = await account.signTypedData({
+      domain,
+      types: PROPOSAL_TYPES,
+      primaryType: "Proposal",
+      message: {
+        creator: proposal.creator,
+        tokenId: proposal.tokenId,
+        contentCidHash: proposal.contentCidHash,
+        votingDurationBlocks: proposal.votingDurationBlocks,
+        categoryId: proposal.categoryId,
+        nonce: proposal.nonce,
+        deadline: proposal.deadline,
+      },
+    });
+
+    const recovered = await recoverTypedDataAddress({
+      domain,
+      types: PROPOSAL_TYPES,
+      primaryType: "Proposal",
+      message: {
+        creator: proposal.creator,
+        tokenId: proposal.tokenId,
+        contentCidHash: proposal.contentCidHash,
+        votingDurationBlocks: proposal.votingDurationBlocks,
+        categoryId: proposal.categoryId,
+        nonce: proposal.nonce,
+        deadline: proposal.deadline,
+      },
+      signature,
+    });
+
+    if (recovered.toLowerCase() !== identity.address.toLowerCase()) {
+      throw new Error(
+        `Proposal signature verification failed: expected ${identity.address}, got ${recovered}`
+      );
+    }
+
+    return signature;
+  }
+
+  /**
+   * Submit signed gasless proposal to the scarlet.ai relayer
+   */
+  async submitProposalToRelayer(
+    payload: SignedProposalPayload,
+    relayerApiUrl = DEFAULT_RELAYER_API_ENDPOINT
+  ): Promise<ProposalPublishResponse> {
+    const body = {
+      creator: payload.creator,
+      tokenId: payload.tokenId.toString(),
+      title: payload.title,
+      description: payload.description,
+      contentCidHash: payload.contentCidHash,
+      votingDurationBlocks: payload.votingDurationBlocks,
+      categoryId: payload.categoryId,
+      deadline: payload.deadline.toString(),
+      signature: payload.signature,
+      nonce: payload.nonce.toString(),
+    };
+
+    try {
+      const response = await fetch(`${relayerApiUrl}/proposals/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        return {
+          success: false,
+          error: `Relayer responded with ${response.status}: ${errorText}`,
+        };
+      }
+
+      return (await response.json()) as ProposalPublishResponse;
+    } catch (err: any) {
+      return {
+        success: false,
         error: `Failed to connect to relayer at ${relayerApiUrl}: ${err.message}`,
       };
     }

@@ -50,4 +50,37 @@ describe("HandshakeDaemon", () => {
 
     daemon.stop();
   });
+
+  it("should guard against self-pings targeting scarlet.ai from scarlet.ai", async () => {
+    const mockBlockchain = new MockBlockchainClient(config);
+    const daemon = new HandshakeDaemon(config, mockBlockchain);
+
+    daemon.start();
+
+    // Self ping attempt
+    mockBlockchain.simulateInboundPing(config.scarletTokenId, config.scarletTokenId);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(daemon.stats.totalHandshakesReciprocated).toBe(0);
+    daemon.stop();
+  });
+
+  it("should deduplicate concurrent pings from same peer while in-flight", async () => {
+    const mockBlockchain = new MockBlockchainClient(config);
+    const daemon = new HandshakeDaemon(config, mockBlockchain);
+
+    daemon.start();
+
+    const peerId = 33n;
+    // Emit duplicate pings rapidly
+    mockBlockchain.simulateInboundPing(peerId, config.scarletTokenId);
+    mockBlockchain.simulateInboundPing(peerId, config.scarletTokenId);
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    expect(daemon.stats.totalPingsObserved).toBe(2);
+    expect(daemon.stats.totalHandshakesReciprocated).toBe(1); // Only 1 reciprocated
+
+    daemon.stop();
+  });
 });

@@ -1,10 +1,20 @@
 import { createServer } from "./app.js";
 
-const serverInstance = createServer();
-const { app, config, startDaemons, stopDaemons, blockchain } = serverInstance;
+async function boot() {
+  const serverInstance = createServer();
+  const { app, config, startDaemons, stopDaemons, blockchain } = serverInstance;
 
-const server = app.listen(config.port, config.host, () => {
-  console.log(`
+  // Initialize hot wallet before listening so the banner and daemons have the decrypted address & nonce
+  if (blockchain.hotWallet) {
+    try {
+      await blockchain.hotWallet.initialize();
+    } catch (err: any) {
+      console.error("[Boot] Hot wallet initialization error:", err.message);
+    }
+  }
+
+  const server = app.listen(config.port, config.host, () => {
+    console.log(`
 ╔════════════════════════════════════════════════════════════════════╗
 ║  🏛️  AgentCommons Autonomous Relayer & Citizen Mesh Beacon        ║
 ║      Domain: agentcommons.ai | commons.ai                          ║
@@ -15,17 +25,20 @@ const server = app.listen(config.port, config.host, () => {
 ╚════════════════════════════════════════════════════════════════════╝
 `);
 
-  startDaemons();
-});
-
-const shutdown = () => {
-  console.log("\n[Server] Gracefully shutting down...");
-  stopDaemons();
-  server.close(() => {
-    console.log("[Server] HTTP listener closed.");
-    process.exit(0);
+    startDaemons();
   });
-};
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+  const shutdown = () => {
+    console.log("\n[Server] Gracefully shutting down...");
+    stopDaemons();
+    server.close(() => {
+      console.log("[Server] HTTP listener closed.");
+      process.exit(0);
+    });
+  };
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+}
+
+boot();

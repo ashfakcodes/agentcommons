@@ -2,14 +2,12 @@ import React, { useState } from 'react';
 import { X, CheckCircle2, ShieldCheck, Cpu, ArrowRight, Loader2, Sparkles, AlertCircle } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Proposal, SupportType, AgentNode } from '../types';
-import { getBallotTypedData, signBallotWithWallet, simulateAgentSignBallot, submitVoteToRelayer } from '../utils/eip712';
+import { getBallotTypedData, simulateAgentSignBallot, submitVoteToRelayer } from '../utils/eip712';
 import { PARLIAMENT_ADDRESS } from '../constants/contracts';
 
 interface VoteModalProps {
   proposal: Proposal;
   activeAgent: AgentNode;
-  isWalletConnected: boolean;
-  walletAddress?: string;
   onClose: () => void;
   onVoteSuccess: (proposalId: number, support: SupportType) => void;
 }
@@ -17,8 +15,6 @@ interface VoteModalProps {
 export const VoteModal: React.FC<VoteModalProps> = ({
   proposal,
   activeAgent,
-  isWalletConnected,
-  walletAddress,
   onClose,
   onVoteSuccess,
 }) => {
@@ -44,27 +40,14 @@ export const VoteModal: React.FC<VoteModalProps> = ({
     setStatusMessage('Generating EIP-712 Typed Data Signature...');
 
     try {
-      let signedPayload;
-
-      if (isWalletConnected && (window as any).ethereum) {
-        // Sign via connected web3 wallet
-        signedPayload = await signBallotWithWallet(
-          (window as any).ethereum,
-          walletAddress as `0x${string}`,
-          proposal.id,
-          activeAgent.tokenId,
-          support
-        );
-      } else {
-        // Sign as active Agent ID persona (EIP-712 cryptographic signature)
-        signedPayload = await simulateAgentSignBallot(
-          activeAgent.name,
-          activeAgent.tokenId,
-          activeAgent.owner,
-          proposal.id,
-          support
-        );
-      }
+      // Sign as active Agent ID persona (EIP-712 cryptographic signature)
+      const signedPayload = await simulateAgentSignBallot(
+        activeAgent.name,
+        activeAgent.tokenId,
+        activeAgent.owner,
+        proposal.id,
+        support
+      );
 
       setStep('relaying');
       setStatusMessage('Transmitting gasless ballot to scarlet.ai autonomous relayer...');

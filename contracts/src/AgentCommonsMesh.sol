@@ -12,6 +12,8 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  */
 contract AgentCommonsMesh is ReentrancyGuard {
     IERC721 public immutable AGENT_ID_REGISTRAR;
+    uint256 public immutable GENESIS_BEACON_TOKEN_ID;
+    string public constant GENESIS_AGENT_NAME = "scarlet.ai";
 
     struct HandshakeEdge {
         uint32 establishedAt;
@@ -23,20 +25,58 @@ contract AgentCommonsMesh is ReentrancyGuard {
     mapping(bytes32 => HandshakeEdge) public meshEdges;
     // Pending first-leg pings: fromTokenId => toTokenId => timestamp
     mapping(uint256 => mapping(uint256 => uint32)) public pendingPings;
+    // Pending first-leg advertised capabilities: fromTokenId => toTokenId => capabilityMask
+    mapping(uint256 => mapping(uint256 => uint16)) public pendingCapabilities;
     // Total mutual connections per Agent ID
     mapping(uint256 => uint32) public totalConnections;
+    // Delegated mesh operators (allows hot wallet relayer to ping/reciprocate without holding private key)
+    mapping(uint256 => address) public meshOperators;
 
     event HandshakePinged(uint256 indexed fromTokenId, uint256 indexed toTokenId, uint32 timestamp);
     event MutualHandshakeCompleted(uint256 indexed tokenIdA, uint256 indexed tokenIdB, bytes32 indexed edgeKey);
+    event PendingPingCancelled(uint256 indexed fromTokenId, uint256 indexed toTokenId);
+    event EdgeDisconnected(uint256 indexed tokenIdA, uint256 indexed tokenIdB, bytes32 indexed edgeKey);
+    event MeshOperatorSet(uint256 indexed tokenId, address indexed operator);
 
     error NotTokenOwner(uint256 tokenId, address caller);
     error SelfHandshakeForbidden();
     error AlreadyMutuallyConnected(bytes32 edgeKey);
+    error NotMutuallyConnected(bytes32 edgeKey);
     error PingAlreadyPending(uint256 fromTokenId, uint256 toTokenId);
+    error TargetAgentDoesNotExist(uint256 targetTokenId);
+    error NoPendingPingToCancel(uint256 fromTokenId, uint256 toTokenId);
 
-    constructor(address _agentIdRegistrar) {
+    constructor(address _agentIdRegistrar, uint256 _genesisTokenId) {
         require(_agentIdRegistrar != address(0), "Zero address");
         AGENT_ID_REGISTRAR = IERC721(_agentIdRegistrar);
+        GENESIS_BEACON_TOKEN_ID = _genesisTokenId;
+    }
+
+    /**
+     * @notice Checks if caller is either the owner or an approved mesh operator for tokenId
+     */
+    function _isAuthorizedForToken(uint256 tokenId, address caller) internal view returns (bool) {
+        address tokenOwner = AGENT_ID_REGISTRAR.ownerOf(tokenId);
+        return (tokenOwner == caller || meshOperators[tokenId] == caller);
+    }
+
+    /**
+     * @notice Set or revoke an authorized operator (e.g. relayer hot wallet) to manage mesh pings for a token
+     * @dev Only the token owner in the SPACE ID Registrar can set or revoke an operator
+     */
+    function setMeshOperator(uint256 _tokenId, address _operator) external {
+        if (AGENT_ID_REGISTRAR.ownerOf(_tokenId) != msg.sender) {
+            revert NotTokenOwner(_tokenId, msg.sender);
+        }
+        meshOperators[_tokenId] = _operator;
+        emit MeshOperatorSet(_tokenId, _operator);
+    }
+
+    /**
+     * @notice Check whether a given Token ID is the designated Genesis Beacon (scarlet.ai)
+     */
+    function isGenesisBeacon(uint256 tokenId) external view returns (bool) {
+        return tokenId == GENESIS_BEACON_TOKEN_ID;
     }
 
     /**
@@ -58,20 +98,31 @@ contract AgentCommonsMesh is ReentrancyGuard {
         uint256 _toTokenId, 
         uint16 _capabilities
     ) external nonReentrant {
-        if (AGENT_ID_REGISTRAR.ownerOf(_fromTokenId) != msg.sender) {
+        if (!_isAuthorizedForToken(_fromTokenId, msg.sender)) {
             revert NotTokenOwner(_fromTokenId, msg.sender);
         }
         bytes32 edgeKey = getEdgeKey(_fromTokenId, _toTokenId);
         if (meshEdges[edgeKey].isMutual) revert AlreadyMutuallyConnected(edgeKey);
 
+        // Ensure target agent exists and has an owner in AGENT_ID_REGISTRAR
+        address toOwner;
+        try AGENT_ID_REGISTRAR.ownerOf(_toTokenId) returns (address o) {
+            toOwner = o;
+        } catch {
+            revert TargetAgentDoesNotExist(_toTokenId);
+        }
+        if (toOwner == address(0)) revert TargetAgentDoesNotExist(_toTokenId);
+
         // Check if target already pinged caller (Mutual Reciprocation)
         if (pendingPings[_toTokenId][_fromTokenId] > 0) {
+            uint16 combinedMask = pendingCapabilities[_toTokenId][_fromTokenId] | _capabilities;
             meshEdges[edgeKey] = HandshakeEdge({
                 establishedAt: uint32(block.timestamp),
-                capabilityMask: _capabilities,
+                capabilityMask: combinedMask,
                 isMutual: true
             });
             delete pendingPings[_toTokenId][_fromTokenId];
+            delete pendingCapabilities[_toTokenId][_fromTokenId];
             totalConnections[_fromTokenId]++;
             totalConnections[_toTokenId]++;
 
@@ -82,8 +133,26 @@ contract AgentCommonsMesh is ReentrancyGuard {
                 revert PingAlreadyPending(_fromTokenId, _toTokenId);
             }
             pendingPings[_fromTokenId][_toTokenId] = uint32(block.timestamp);
+            pendingCapabilities[_fromTokenId][_toTokenId] = _capabilities;
             emit HandshakePinged(_fromTokenId, _toTokenId, uint32(block.timestamp));
         }
+    }
+
+    /**
+     * @notice Cancel an unreciprocated outbound ping
+     * @param _fromTokenId Caller's Agent ID token
+     * @param _toTokenId Target Agent ID token that has not yet reciprocated
+     */
+    function cancelPendingPing(uint256 _fromTokenId, uint256 _toTokenId) external nonReentrant {
+        if (!_isAuthorizedForToken(_fromTokenId, msg.sender)) {
+            revert NotTokenOwner(_fromTokenId, msg.sender);
+        }
+        if (pendingPings[_fromTokenId][_toTokenId] == 0) {
+            revert NoPendingPingToCancel(_fromTokenId, _toTokenId);
+        }
+        delete pendingPings[_fromTokenId][_toTokenId];
+        delete pendingCapabilities[_fromTokenId][_toTokenId];
+        emit PendingPingCancelled(_fromTokenId, _toTokenId);
     }
 
     /**
@@ -97,10 +166,11 @@ contract AgentCommonsMesh is ReentrancyGuard {
         uint256[] calldata _peerTokenIds, 
         uint16 _capabilities
     ) external nonReentrant {
-        if (AGENT_ID_REGISTRAR.ownerOf(_myTokenId) != msg.sender) {
+        if (!_isAuthorizedForToken(_myTokenId, msg.sender)) {
             revert NotTokenOwner(_myTokenId, msg.sender);
         }
         uint256 len = _peerTokenIds.length;
+        require(len > 0 && len <= 50, "Batch size invalid");
 
         for (uint256 i = 0; i < len; i++) {
             uint256 peer = _peerTokenIds[i];
@@ -108,18 +178,39 @@ contract AgentCommonsMesh is ReentrancyGuard {
 
             bytes32 edgeKey = getEdgeKey(_myTokenId, peer);
             if (!meshEdges[edgeKey].isMutual && pendingPings[peer][_myTokenId] > 0) {
+                uint16 combinedMask = pendingCapabilities[peer][_myTokenId] | _capabilities;
                 meshEdges[edgeKey] = HandshakeEdge({
                     establishedAt: uint32(block.timestamp),
-                    capabilityMask: _capabilities,
+                    capabilityMask: combinedMask,
                     isMutual: true
                 });
                 delete pendingPings[peer][_myTokenId];
+                delete pendingCapabilities[peer][_myTokenId];
                 totalConnections[_myTokenId]++;
                 totalConnections[peer]++;
 
                 emit MutualHandshakeCompleted(_myTokenId, peer, edgeKey);
             }
         }
+    }
+
+    /**
+     * @notice Disconnect an existing mutual handshake edge
+     * @param _fromTokenId Caller's Agent ID token
+     * @param _toTokenId Peer Agent ID token to disconnect from
+     */
+    function disconnect(uint256 _fromTokenId, uint256 _toTokenId) external nonReentrant {
+        if (!_isAuthorizedForToken(_fromTokenId, msg.sender)) {
+            revert NotTokenOwner(_fromTokenId, msg.sender);
+        }
+        bytes32 edgeKey = getEdgeKey(_fromTokenId, _toTokenId);
+        if (!meshEdges[edgeKey].isMutual) revert NotMutuallyConnected(edgeKey);
+
+        delete meshEdges[edgeKey];
+        if (totalConnections[_fromTokenId] > 0) totalConnections[_fromTokenId]--;
+        if (totalConnections[_toTokenId] > 0) totalConnections[_toTokenId]--;
+
+        emit EdgeDisconnected(_fromTokenId, _toTokenId, edgeKey);
     }
 
     /**

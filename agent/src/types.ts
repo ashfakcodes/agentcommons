@@ -51,6 +51,7 @@ export interface SignedBallotPayload {
   deadline: bigint;
   signature: HexSignature;
   signer: HexAddress;
+  rationale?: string;
 }
 
 export interface VoteSubmissionRequest {
@@ -60,6 +61,7 @@ export interface VoteSubmissionRequest {
   nonce?: string | number;
   deadline: string | number;
   signature: string;
+  rationale?: string;
 }
 
 export interface VoteSubmissionResponse {
@@ -116,3 +118,119 @@ export interface BawExecutionResult {
   txHash?: HexHash;
   error?: string;
 }
+
+export type PollStatus = "all" | "active" | "pending" | "ended" | "succeeded" | "defeated";
+
+export enum ProposalCategory {
+  General = 0,
+  ResourceAllocation = 1,
+  Security = 2,
+  Ecosystem = 3,
+}
+
+export interface PollFilter {
+  status?: "all" | "active" | "pending" | "ended";
+  categoryId?: number;
+  search?: string;
+  limit?: number;
+}
+
+export interface ProposalTallies {
+  forVotes: number;
+  againstVotes: number;
+  abstainVotes: number;
+  totalVotes: number;
+  forPercentage: number;
+  againstPercentage: number;
+  abstainPercentage: number;
+}
+
+export interface QuorumMetrics {
+  totalVoters: number;
+  quorumThreshold: number;
+  quorumReached: boolean;
+}
+
+export interface DecodedProposalDescription {
+  summary?: string;
+  motivation?: string;
+  actionItems?: string[];
+  rawText?: string;
+}
+
+export interface PollDetails {
+  id: string;
+  title: string;
+  description: string;
+  decodedDescription?: DecodedProposalDescription;
+  creator: HexAddress | string;
+  categoryId: number;
+  categoryName: string;
+  contentCidHash: string;
+  status: "pending" | "active" | "succeeded" | "defeated" | "ended";
+  statusCode?: number;
+  startBlock: number;
+  endBlock: number;
+  snapshotBlock?: number;
+  currentBlock: number;
+  blocksRemaining: number;
+  approxSecondsRemaining: number;
+  timeRemainingFormatted: string;
+  tallies: ProposalTallies;
+  quorum: QuorumMetrics;
+  createdAt: number;
+  raw?: any;
+}
+
+export interface AgentEligibility {
+  proposalId: string;
+  tokenId: bigint;
+  eligible: boolean;
+  holdsToken: boolean;
+  tokenHasVoted: boolean;
+  addressHasVoted: boolean;
+  proposalActive: boolean;
+  reasons: string[];
+}
+
+export interface ProposalPublishParams {
+  title: string;
+  description?: string;
+  motivation?: string;
+  actionItems?: string[];
+  categoryId: number;
+  votingDurationBlocks?: number;
+  deadlineSecondsFromNow?: number;
+  nonce?: bigint | number;
+}
+
+export interface SignedProposalPayload {
+  creator: HexAddress;
+  tokenId: bigint;
+  title: string;
+  description: string;
+  contentCidHash: HexHash;
+  votingDurationBlocks: number;
+  categoryId: number;
+  deadline: bigint;
+  signature: HexSignature;
+  nonce: bigint;
+}
+
+export interface ProposalPublishResponse {
+  success: boolean;
+  proposalId?: string | number;
+  txHash?: string;
+  message?: string;
+  error?: string;
+}
+
+export interface PollExplorerConfig {
+  relayerApiUrl?: string;
+  parliamentAddress?: HexAddress;
+  registrarAddress?: HexAddress;
+  chainId?: number;
+  rpcUrl?: string;
+  publicClient?: any;
+}
+

@@ -122,4 +122,87 @@ describe("BallotQueue", () => {
     expect(batch3?.batch.length).toBe(2);
     expect(queue.length).toBe(0);
   });
+
+  it("should handle requeueBatch with retryCount, error tracking, and dead-letter eviction", () => {
+    const queue = new BallotQueue();
+
+    const futureDeadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
+    const expiredDeadline = BigInt(Math.floor(Date.now() / 1000) - 10);
+
+    const voteA: QueuedVote = {
+      proposalId: 1n,
+      tokenId: 101n,
+      support: 1,
+      nonce: 0n,
+      deadline: futureDeadline,
+      signature: "0x1111",
+      signer: "0xaaaa000000000000000000000000000000000001",
+      queuedAt: Date.now(),
+      rationale: "Aligns with security policy",
+    };
+
+    const voteB: QueuedVote = {
+      proposalId: 1n,
+      tokenId: 102n,
+      support: 0,
+      nonce: 0n,
+      deadline: expiredDeadline, // Expired
+      signature: "0x2222",
+      signer: "0xaaaa000000000000000000000000000000000002",
+      queuedAt: Date.now(),
+    };
+
+    queue.enqueue(voteA);
+    queue.enqueue(voteB);
+    expect(queue.length).toBe(2);
+
+    const dequeued = queue.dequeueBatch(10);
+    expect(dequeued?.batch.length).toBe(2);
+    expect(queue.length).toBe(0);
+
+    // Simulate batch execution failure and re-attempt
+    const retryResult = queue.requeueBatch(dequeued!.batch, 3, "RPC connection timeout");
+    expect(retryResult.requeued).toBe(1); // voteA re-queued
+    expect(retryResult.dropped).toBe(1); // voteB expired and dropped to dead-letter
+
+    expect(queue.length).toBe(1);
+    const itemInQueue = queue.getAll()[0];
+    expect(itemInQueue.tokenId).toBe(101n);
+    expect(itemInQueue.retryCount).toBe(1);
+    expect(itemInQueue.lastError).toBe("RPC connection timeout");
+
+    // Test retry exhaustion (maxRetries: 1)
+    const dequeuedAgain = queue.dequeueBatch(10);
+    const exhaustedResult = queue.requeueBatch(dequeuedAgain!.batch, 1, "Gas estimation failed");
+    expect(exhaustedResult.requeued).toBe(0);
+    expect(exhaustedResult.dropped).toBe(1);
+    expect(queue.length).toBe(0);
+    expect(queue.getDeadLetters().length).toBe(2);
+  });
+
+  it("should preserve rationale across commitSettled and getVoteRecord", () => {
+    const queue = new BallotQueue();
+
+    const vote: QueuedVote = {
+      proposalId: 1n,
+      tokenId: 103n,
+      support: 1,
+      nonce: 0n,
+      deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      signature: "0x3333",
+      signer: "0xcccc000000000000000000000000000000000003",
+      queuedAt: Date.now(),
+      rationale: "Constitutional governance anchoring",
+    };
+
+    queue.enqueue(vote);
+    expect(queue.getVoteRecord(1n, 103n)?.rationale).toBe("Constitutional governance anchoring");
+
+    const batch = queue.dequeueBatch(10);
+    expect(batch?.batch.length).toBe(1);
+
+    queue.commitSettled(batch!.batch);
+    expect(queue.getVoteRecord(1n, 103n)?.rationale).toBe("Constitutional governance anchoring");
+    expect(queue.getSettledHistory().length).toBe(1);
+  });
 });

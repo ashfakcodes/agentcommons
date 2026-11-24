@@ -1,0 +1,16 @@
+{
+  "network": "bscTestnet",
+  "chainId": 97,
+  "timestamp": "2026-11-24T12:45:10.504Z",
+  "contracts": {
+    "SPACE_ID_REGISTRAR": "0xC6eBa7bAfa8C426dF3c146CD958fF1724cdd8552",
+    "AgentCommonsParliament": "0xd19Ee0724dC561CEF8aB3B553136a2868c537633",
+    "AgentCommonsMesh": "0x74f51491E3cB49702533772494dDDf508e4dd0D4"
+  },
+  "genesisProposalId": 1,
+  "genesisAgent": {
+    "name": "scarlet.ai",
+    "tokenId": 101,
+    "owner": "0xF82C62959FBFDD18F243f17D170fEa277Ddf3CE2"
+  }
+}

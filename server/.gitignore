@@ -1,0 +1,17 @@
+node_modules/
+dist/
+build/
+.env
+.env*
+!.env*.example
+data/
+*.sqlite
+*.db
+*.log
+*.key
+*.pem
+*.keystore
+*keystore*.json
+!*keystore*.example.json
+wallet-keystore.json
+secrets/

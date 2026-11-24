@@ -71,10 +71,17 @@ Clean JSON ABIs are exported to `contracts/abi/` for backend relayers and fronte
 
 ### 5. Deploy Contracts
 
-Configure your `.env`:
+Configure your dedicated deployment environment file:
 ```bash
-cp .env.example .env
-# Edit PRIVATE_KEY, BSC_TESTNET_RPC_URL, BSC_MAINNET_RPC_URL
+# Copy the template to the isolated .env.deployment file (git-ignored)
+cp .env.deployment.example .env.deployment
+# Or on Windows PowerShell / CMD:
+copy .env.deployment.example .env.deployment
+
+# Edit .env.deployment:
+# - DEPLOYER_PRIVATE_KEY: Disposable hot wallet holding ~$2 in BNB for gas
+# - SCARLET_PUBLIC_ADDRESS: Your public address holding scarlet.ai (#101)
+# - BSCSCAN_API_KEY: For block explorer source code verification
 ```
 
 Deploy to **BSC Testnet (Chain ID 97)**:

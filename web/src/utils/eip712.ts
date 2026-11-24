@@ -1,5 +1,5 @@
-import { hashTypedData, recoverTypedDataAddress, toHex } from 'viem';
-import { EIP712_DOMAIN, EIP712_TYPES, PARLIAMENT_ADDRESS, RELAYER_API_BASE } from '../constants/contracts';
+import { hashTypedData, recoverTypedDataAddress, toHex, getAddress } from 'viem';
+import { BSC_CONFIG, EIP712_DOMAIN, EIP712_TYPES, PARLIAMENT_ADDRESS, RELAYER_API_BASE } from '../constants/contracts';
 import { BallotMessage, SignedBallotPayload, SupportType } from '../types';
 
 export function getBallotTypedData(
@@ -12,8 +12,8 @@ export function getBallotTypedData(
   const domain = {
     name: 'AgentCommonsParliament',
     version: '1',
-    chainId: BigInt(56),
-    verifyingContract: PARLIAMENT_ADDRESS as `0x${string}`,
+    chainId: BigInt(BSC_CONFIG.chainId),
+    verifyingContract: getAddress(PARLIAMENT_ADDRESS),
   };
 
   const types = {

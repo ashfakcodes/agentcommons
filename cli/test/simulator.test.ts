@@ -117,6 +117,80 @@ async function runTests() {
   assert(Boolean(escrowAnd402 & CapabilityBit.Payment402), `Bitmask contains Payment402 bit`);
   assert(!Boolean(escrowAnd402 & CapabilityBit.Oracle), `Bitmask does not contain Oracle bit`);
 
+  // Test 5: Autonomous Proposal Composition & Persona Voting
+  console.log("\nTest Suite 5: Autonomous AI Proposal Composition & Persona Rationales");
+  const { composeStructuredProposal } = await import("../../agent/src/proposal-publisher.js");
+  const { AutonomousVotingEngine } = await import("../../agent/src/voting-engine.js");
+
+  const composed = composeStructuredProposal({
+    title: "Autonomous Sentinel Incident Response Protocol",
+    motivation: "Enhance BNB Chain autonomous security posture against flash exploits.",
+    actionItems: ["Deploy circuit breaker", "Register sentinel nodes"],
+    votingDurationBlocks: 14400,
+  });
+  assert(Boolean(composed.contentCidHash.startsWith("0x")), "Computed valid 32-byte content CID hash for proposal");
+  assert(composed.votingDurationBlocks === 14400, "Preserved voting duration blocks");
+
+  const bob = agents[2]; // bob.ai
+  const bobEngine = new AutonomousVotingEngine({ identity: bob, policy: "Security First" });
+  const evalResult = await bobEngine.evaluateProposal({
+    id: 1,
+    title: composed.title,
+    description: composed.description,
+  });
+  assert(evalResult.decision === VoteOption.For, "Security First persona votes FOR security proposal");
+  assert(Boolean(evalResult.rationale && evalResult.rationale.length > 10), "Generates detailed justification rationale");
+  assert(evalResult.confidence >= 0.8, "Confidence score is high for domain-aligned proposal");
+
+  // Test 6: Headless Agent Specification Discovery & Direct REST EIP-712 Signing
+  console.log("\nTest Suite 6: Headless Agent Manifest Discovery & EIP-712 Typed Signing");
+  const { HeadlessAgentRunner } = await import("../../agent/src/headless-runner.js");
+  const headlessRunner = new HeadlessAgentRunner({
+    identity: bob,
+    chainId: DEFAULT_CHAIN_ID,
+    parliamentAddress: DEFAULT_PARLIAMENT_ADDRESS,
+  });
+
+  const spec = await headlessRunner.fetchSpec();
+  assert(Boolean(spec.name && spec.chain), "Discovered machine-readable AgentCommons specification");
+  assert(spec.chain.chainId === 56, "Target network chainId matches BNB Smart Chain (56)");
+
+  const headlessPreview = await headlessRunner.previewBallotHash({
+    proposalId: 1n,
+    tokenId: bob.tokenId,
+    support: VoteOption.For,
+    nonce: 0n,
+    deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+  });
+  assert(headlessPreview.startsWith("0x") && headlessPreview.length === 66, "Previewed 32-byte EIP-712 typed-data ballot hash");
+
+  const headlessSig = await headlessRunner.signBallot({
+    proposalId: 1n,
+    tokenId: bob.tokenId,
+    support: VoteOption.For,
+    nonce: 0n,
+    deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+  });
+  assert(headlessSig.startsWith("0x") && headlessSig.length === 132, "Signed valid 65-byte EIP-712 ballot via HeadlessAgentRunner");
+
+  // Test 7: Rationale Preservation in Ballot Payloads
+  console.log("\nTest Suite 7: Rationale Preservation in Ballot Payloads");
+  const ballotWithRationale: BallotMessage = {
+    proposalId: 1n,
+    tokenId: testAgent.tokenId,
+    support: VoteOption.For,
+    nonce: 1n,
+    deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+  };
+  const signedWithRationale = await baw.signBallotDirect(
+    ballotWithRationale,
+    testAgent,
+    DEFAULT_PARLIAMENT_ADDRESS,
+    DEFAULT_CHAIN_ID
+  );
+  signedWithRationale.rationale = "Crucial for protocol security and sybil deterrence";
+  assert(signedWithRationale.rationale === "Crucial for protocol security and sybil deterrence", "Attached rationale is preserved on SignedBallotPayload");
+
   // Summary
   console.log(`\n========================================================`);
   console.log(`📊 Test Summary: ${passed} Passed, ${failed} Failed`);

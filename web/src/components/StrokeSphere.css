@@ -1,0 +1,291 @@
+/*
+  StrokeSphere Component Styles
+  Obsidian (#050505) and Platinum/Steel-Blue Palette
+  Adapted from Pavel Troshkin's pure CSS stroke sphere
+*/
+
+@property --angle {
+  syntax: "<angle>";
+  inherits: true;
+  initial-value: 24deg;
+}
+
+@property --growth {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+
+@property --life-opacity {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+
+.stroke-sphere-container {
+  --surface: #050505;
+  --text: var(--color-platinum, #e5e4e2);
+  --muted: var(--color-steel-blue, #8fa3b8);
+  --white: #ffffff;
+  --platinum: var(--color-platinum, #e5e4e2);
+  --steel-blue: var(--color-steel-blue, #8fa3b8);
+  --midnight-elegance: var(--color-midnight-elegance, #aeb2b8);
+
+  /* Theme mappings for the 5 stroke token colors */
+  --yellow: var(--color-platinum, #e5e4e2);            /* Platinum */
+  --violet: var(--color-midnight-elegance, #aeb2b8);    /* Midnight Elegance */
+  --cyan: var(--color-steel-blue, #8fa3b8);             /* Signature Steel Blue */
+  --pink: #9bb4ce;                                      /* Celestial Ice-Blue Highlight */
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 100%;
+  margin: 0 auto;
+  user-select: none;
+}
+
+/* Ambient glow backdrop */
+.stroke-sphere-container::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: calc(var(--diameter, 460px) * 0.95);
+  height: calc(var(--diameter, 460px) * 0.95);
+  background: radial-gradient(circle, rgba(143, 163, 184, 0.07) 0%, rgba(143, 163, 184, 0.02) 45%, transparent 70%);
+  pointer-events: none;
+  border-radius: 50%;
+  z-index: 0;
+}
+
+.stroke-sphere-container .scene {
+  --diameter: var(--sphere-diameter, min(76vw, 48svh, 460px));
+  --radius: calc(var(--diameter) * .42);
+  --rear-opacity: .18;
+  --bang-duration: 1.4s;
+  --bang-ease: linear(0, .1 3%, .55 8%, .9 13%, 1.22 22%, 1.18 27%, .88 42%, .91 48%, 1.075 62%, 1.045 68%, .98 80%, 1.012 90%, 1);
+  position: relative;
+  width: var(--diameter);
+  height: var(--diameter);
+  overflow: clip;
+  transform: scale(1);
+  animation: stroke-sphere-big-bang var(--bang-duration) var(--bang-ease) both;
+  z-index: 1;
+  perspective: 1200px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.stroke-sphere-container .scene.is-dragging {
+  cursor: grabbing;
+}
+
+.stroke-sphere-container .scene::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at var(--light-x, 50%) var(--light-y, 50%), #0c1017 0%, #080b11 50%, #050505 85%);
+  box-shadow: 0 0 50px -10px rgba(143, 163, 184, 0.12), inset 0 0 35px rgba(0, 0, 0, 0.85);
+  pointer-events: none;
+  transition: background 0.08s ease-out;
+}
+
+.stroke-sphere-container .sphere {
+  --time-scale: 1;
+  position: absolute;
+  inset: 0;
+  transform:
+    scale(var(--sphere-zoom, 1))
+    rotateX(var(--rot-x, 0deg))
+    rotateY(var(--rot-y, 0deg))
+    rotateZ(var(--rot-z, -14deg));
+  transform-style: preserve-3d;
+  animation: stroke-sphere-circulate calc(28s * var(--time-scale)) linear infinite;
+  will-change: transform;
+}
+
+.stroke-sphere-container .orbit {
+  --phase: calc(var(--angle) + var(--longitude));
+  --orbit-radius: calc(var(--radius) * cos(var(--latitude)));
+  --x: calc(var(--orbit-radius) * cos(var(--phase)));
+  --z: calc(var(--orbit-radius) * sin(var(--phase)));
+  --chord: calc(2 * var(--orbit-radius) * abs(cos(var(--phase))));
+  --depth-opacity: calc(var(--rear-opacity) + (1 - var(--rear-opacity)) * (.5 + .5 * sin(var(--phase))));
+  position: absolute;
+  left: 50%;
+  top: calc(50% + var(--radius) * sin(var(--latitude)));
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+}
+
+.stroke-sphere-container .orbit::before {
+  content: "";
+  position: absolute;
+  width: calc(var(--size) * var(--diameter));
+  height: clamp(1.5px, calc(var(--diameter) * var(--weight)), 2.5px);
+  border-radius: 999px;
+  background: var(--color);
+  box-shadow: 0 0 3px var(--color);
+  transform:
+    translate(-50%, -50%)
+    translate3d(var(--x), 0, var(--z))
+    rotateY(calc(90deg - var(--phase)))
+    rotateX(calc(-1 * var(--latitude)))
+    rotateZ(var(--twist))
+    scaleX(var(--growth));
+  opacity: calc(var(--depth-opacity) * var(--life-opacity));
+  animation: stroke-sphere-appear calc(var(--duration) * var(--time-scale)) ease-out calc(var(--delay) * var(--time-scale)) infinite;
+}
+
+.stroke-sphere-container .orbit > i {
+  position: absolute;
+  left: calc(var(--chord) / -2);
+  top: -.5px;
+  width: var(--chord);
+  height: 1px;
+  background: var(--text);
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+@keyframes stroke-sphere-circulate {
+  to { --angle: 384deg; }
+}
+
+@keyframes stroke-sphere-big-bang {
+  from { transform: scale(.1); }
+  to { transform: scale(1); }
+}
+
+@keyframes stroke-sphere-appear {
+  0%, 100% { --growth: 0; --life-opacity: 0; }
+  6% { --life-opacity: 1; }
+  40% { --growth: 1; --life-opacity: 1; }
+  62% { --growth: 1; --life-opacity: 1; animation-timing-function: ease-in; }
+  92% { --growth: 0; --life-opacity: 0; }
+}
+
+/* Interactive & Control States */
+.stroke-sphere-container.is-paused .scene,
+.stroke-sphere-container.is-paused .sphere,
+.stroke-sphere-container.is-paused .orbit::before,
+.stroke-sphere-container:has(#pause:checked) .scene,
+.stroke-sphere-container:has(#pause:checked) .sphere,
+.stroke-sphere-container:has(#pause:checked) .orbit::before {
+  animation-play-state: paused !important;
+}
+
+.stroke-sphere-container.is-slow .sphere,
+.stroke-sphere-container:has(#slow:checked) .sphere {
+  --time-scale: 2;
+}
+
+.stroke-sphere-container.is-slow .scene,
+.stroke-sphere-container:has(#slow:checked) .scene {
+  --bang-duration: 2.8s;
+}
+
+.stroke-sphere-container.always-visible .orbit::before,
+.stroke-sphere-container:has(#visible:checked) .orbit::before {
+  animation: none !important;
+}
+
+.stroke-sphere-container.show-chords .orbit > i,
+.stroke-sphere-container:has(#chords:checked) .orbit > i {
+  opacity: .12 !important;
+}
+
+.stroke-sphere-container:has(#replay:active) .scene {
+  animation: none;
+  transform: scale(.1);
+}
+
+/* Optional Controls Bar */
+.stroke-sphere-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 10px 20px;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 14px;
+  padding: 6px 18px;
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid rgba(143, 163, 184, 0.15);
+  border-radius: 9999px;
+  backdrop-filter: blur(8px);
+  z-index: 2;
+}
+
+.stroke-sphere-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--muted);
+  transition: color 0.15s ease;
+  user-select: none;
+}
+
+.stroke-sphere-controls label:hover {
+  color: var(--text);
+}
+
+.stroke-sphere-controls input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--steel-blue);
+  cursor: pointer;
+}
+
+.stroke-sphere-controls button {
+  padding: 3px 12px;
+  border: 1px solid rgba(143, 163, 184, 0.3);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.stroke-sphere-controls button:hover {
+  border-color: var(--steel-blue);
+  background: rgba(143, 163, 184, 0.1);
+}
+
+/* Responsive adjustments */
+@media (max-width: 520px) {
+  .stroke-sphere-container .scene {
+    --diameter: var(--sphere-diameter, min(88vw, calc(100vw - 40px), 46svh));
+  }
+  .stroke-sphere-controls {
+    gap: 8px 14px;
+    font-size: 11px;
+    padding: 6px 12px;
+  }
+}
+
+/* Reduced motion accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .stroke-sphere-container .scene {
+    animation: none;
+    transform: scale(1);
+  }
+  .stroke-sphere-container .sphere,
+  .stroke-sphere-container .orbit::before {
+    animation: none;
+  }
+  .stroke-sphere-container .orbit > i {
+    transition: none;
+  }
+}

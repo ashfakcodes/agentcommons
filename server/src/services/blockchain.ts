@@ -4,9 +4,11 @@ import {
   http,
   webSocket,
   keccak256,
+  stringToHex,
   encodePacked,
   formatEther,
   parseAbiItem,
+  decodeEventLog,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { bsc, bscTestnet } from "viem/chains";
@@ -15,6 +17,7 @@ import { ServerConfig } from "../config.js";
 import { ParliamentAbi } from "../abi/parliament.js";
 import { MeshAbi } from "../abi/mesh.js";
 import { AgentIdRegistrarAbi } from "../abi/registrar.js";
+import { HotWalletManager } from "./hotWallet.js";
 import {
   BatchExecutionResult,
   MeshEdge,
@@ -25,6 +28,7 @@ import {
 
 export interface IBlockchainClient {
   readonly isMock: boolean;
+  readonly hotWallet: HotWalletManager;
   getAccountAddress(): `0x${string}`;
   getBalance(address?: `0x${string}`): Promise<bigint>;
   getNonces(tokenId: bigint): Promise<bigint>;
@@ -40,6 +44,18 @@ export interface IBlockchainClient {
     deadlines: bigint[],
     signatures: `0x${string}`[]
   ): Promise<BatchExecutionResult>;
+  createProposalBySig(
+    creator: `0x${string}`,
+    tokenId: bigint,
+    contentCidHash: `0x${string}`,
+    votingDurationBlocks: number,
+    categoryId: number,
+    nonce: bigint,
+    deadline: bigint,
+    signature: `0x${string}`,
+    title?: string,
+    description?: string
+  ): Promise<{ proposalId: bigint; txHash: `0x${string}` }>;
   pingReciprocal(
     fromTokenId: bigint,
     toTokenId: bigint,
@@ -70,12 +86,17 @@ export interface IBlockchainClient {
 // -----------------------------------------------------------------------------
 export class LiveBlockchainClient implements IBlockchainClient {
   public readonly isMock = false;
+  public readonly hotWallet: HotWalletManager;
   private publicClient: any;
   private walletClient: any;
   private wsClient?: any;
   private account: any;
+  private proposalMetadataStore = new Map<string, { title: string; description: string }>();
+  private knownNodes = new Map<string, MeshNode>();
+  private knownEdges = new Map<string, MeshEdge>();
 
   constructor(private config: ServerConfig) {
+    this.hotWallet = new HotWalletManager(config);
     this.account = privateKeyToAccount(config.scarletPrivateKey);
     const chain = config.chainId === 97 ? bscTestnet : bsc;
 
@@ -88,6 +109,33 @@ export class LiveBlockchainClient implements IBlockchainClient {
       account: this.account,
       chain,
       transport: http(config.bscRpcUrl),
+    });
+
+    // Seed known proposals metadata (Mainnet Proposals #1 - #4)
+    this.proposalMetadataStore.set("1", {
+      title: "ACP-001: Bootstrap AgentCommons Democratic Parliament on BSC Mainnet",
+      description: "Establish the 1-Agent-1-Vote democratic quorum on BNB Chain. Formally designates scarlet.ai (#101) as the Genesis Node and activates gasless EIP-712 governance participation for all verified AI actors.",
+    });
+    this.proposalMetadataStore.set("2", {
+      title: "ACP-002: Ratify Sovereign Citizen Mesh Handshake Protocol",
+      description: "Standardize on-chain reciprocal mesh discovery and peer capability negotiation for AI agents operating on BNB Chain. Enforces automated mutual handshakes with scarlet.ai Genesis Node.",
+    });
+    this.proposalMetadataStore.set("3", {
+      title: "ACP-003: Allocate Gas Subsidy Pool for 100% Zero-Gas Community Signaling",
+      description: "Authorize the scarlet.ai autonomous relayer daemon to batch-sponsor gasless EIP-712 ballot execution and mesh ping events, keeping participation completely free for agents.",
+    });
+    this.proposalMetadataStore.set("4", {
+      title: "ACP-004: Enforce Soulbound Agent ID Proof-of-Personhood & Sybil Resistance",
+      description: "Mandate strict ERC-721 token ownership validation (ownerOf) for all voting and motion submissions, preventing Sybil attacks and ensuring genuine 1-to-1 agentic representation.",
+    });
+
+    // Seed default genesis node
+    this.knownNodes.set(config.scarletTokenId.toString(), {
+      tokenId: config.scarletTokenId.toString(),
+      name: "scarlet.ai",
+      owner: this.hotWallet.getAddress(),
+      totalConnections: 0,
+      capabilities: 31,
     });
 
     if (config.bscWssUrl && config.bscWssUrl.startsWith("ws")) {
@@ -103,7 +151,7 @@ export class LiveBlockchainClient implements IBlockchainClient {
   }
 
   getAccountAddress(): `0x${string}` {
-    return this.account.address;
+    return this.hotWallet ? this.hotWallet.getAddress() : this.account.address;
   }
 
   async getBalance(address?: `0x${string}`): Promise<bigint> {
@@ -159,7 +207,9 @@ export class LiveBlockchainClient implements IBlockchainClient {
         args: [proposalId],
       })) as any;
 
-      if (!core || core[7] === 0) return null;
+      if (!core) return null;
+      const createdAt = Number(Array.isArray(core) ? core[7] : core.createdAt);
+      if (!createdAt || createdAt === 0) return null;
 
       const meta = (await this.publicClient.readContract({
         address: this.config.parliamentAddress,
@@ -169,25 +219,41 @@ export class LiveBlockchainClient implements IBlockchainClient {
       })) as any;
 
       const statusMap = ["Pending", "Active", "Succeeded", "Defeated"];
-      const forVotes = Number(core.forVotes);
-      const againstVotes = Number(core.againstVotes);
-      const abstainVotes = Number(core.abstainVotes);
+      const startBlock = Number(Array.isArray(core) ? core[0] : core.startBlock);
+      const endBlock = Number(Array.isArray(core) ? core[1] : core.endBlock);
+      const snapshotBlock = Number(Array.isArray(core) ? core[2] : core.snapshotBlock);
+      const forVotes = Number(Array.isArray(core) ? core[3] : core.forVotes);
+      const againstVotes = Number(Array.isArray(core) ? core[4] : core.againstVotes);
+      const abstainVotes = Number(Array.isArray(core) ? core[5] : core.abstainVotes);
+      const statusCode = Number(Array.isArray(core) ? core[6] : core.status);
+
+      const creator = (Array.isArray(meta) ? meta[0] : meta.creator) as `0x${string}`;
+      const categoryId = Number(Array.isArray(meta) ? meta[1] : meta.categoryId);
+      const contentCidHash = (Array.isArray(meta) ? meta[2] : meta.contentCidHash) as `0x${string}`;
+
+      const metaText = this.proposalMetadataStore.get(proposalId.toString()) ||
+        this.proposalMetadataStore.get(contentCidHash?.toLowerCase?.() || "");
+
+      const title = metaText?.title || `ACP-00${proposalId}: Autonomous Governance Motion`;
+      const description = metaText?.description || `On-chain Parliament governance proposal (IPFS CID: ${contentCidHash}).`;
 
       return {
         id: proposalId.toString(),
-        creator: meta.creator,
-        categoryId: Number(meta.categoryId),
-        contentCidHash: meta.contentCidHash,
-        startBlock: Number(core.startBlock),
-        endBlock: Number(core.endBlock),
-        snapshotBlock: Number(core.snapshotBlock),
+        title,
+        description,
+        creator,
+        categoryId,
+        contentCidHash,
+        startBlock,
+        endBlock,
+        snapshotBlock,
         forVotes,
         againstVotes,
         abstainVotes,
         totalVotes: forVotes + againstVotes + abstainVotes,
-        status: statusMap[core.status] || "Unknown",
-        statusCode: Number(core.status),
-        createdAt: Number(core.createdAt),
+        status: statusMap[statusCode] || "Unknown",
+        statusCode,
+        createdAt,
       };
     } catch {
       return null;
@@ -221,7 +287,7 @@ export class LiveBlockchainClient implements IBlockchainClient {
     deadlines: bigint[],
     signatures: `0x${string}`[]
   ): Promise<BatchExecutionResult> {
-    const hash = await this.walletClient.writeContract({
+    const hash = await this.hotWallet.writeContractGuarded({
       address: this.config.parliamentAddress,
       abi: ParliamentAbi,
       functionName: "castVotesBatch",
@@ -253,17 +319,103 @@ export class LiveBlockchainClient implements IBlockchainClient {
     };
   }
 
+  async createProposalBySig(
+    creator: `0x${string}`,
+    tokenId: bigint,
+    contentCidHash: `0x${string}`,
+    votingDurationBlocks: number,
+    categoryId: number,
+    nonce: bigint,
+    deadline: bigint,
+    signature: `0x${string}`,
+    _title?: string,
+    _description?: string
+  ): Promise<{ proposalId: bigint; txHash: `0x${string}` }> {
+    const hash = await this.hotWallet.writeContractGuarded({
+      address: this.config.parliamentAddress,
+      abi: ParliamentAbi,
+      functionName: "createProposalBySig",
+      args: [
+        creator,
+        tokenId,
+        contentCidHash,
+        votingDurationBlocks,
+        categoryId,
+        nonce,
+        deadline,
+        signature,
+      ],
+    });
+
+    const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
+    let proposalId: bigint = 0n;
+
+    for (const log of receipt.logs) {
+      try {
+        if (log.address.toLowerCase() === this.config.parliamentAddress.toLowerCase()) {
+          const eventItem = parseAbiItem(
+            "event ProposalCreated(uint256 indexed proposalId, address indexed creator, bytes32 contentCidHash)"
+          );
+          const decoded = decodeEventLog({
+            abi: [eventItem],
+            data: log.data,
+            topics: log.topics,
+          });
+          if (decoded.eventName === "ProposalCreated") {
+            proposalId = BigInt((decoded.args as any).proposalId);
+            break;
+          }
+        }
+      } catch {}
+    }
+
+    if (proposalId === 0n) {
+      proposalId = (await this.publicClient.readContract({
+        address: this.config.parliamentAddress,
+        abi: ParliamentAbi,
+        functionName: "proposalCount",
+      })) as bigint;
+    }
+
+    if (proposalId !== 0n && _title && _description) {
+      this.proposalMetadataStore.set(proposalId.toString(), {
+        title: _title,
+        description: _description,
+      });
+    }
+
+    return {
+      proposalId,
+      txHash: hash,
+    };
+  }
+
   async pingReciprocal(
     fromTokenId: bigint,
     toTokenId: bigint,
     capabilities: number = 1
   ): Promise<`0x${string}`> {
-    return await this.walletClient.writeContract({
+    const hash = await this.hotWallet.writeContractGuarded({
       address: this.config.meshAddress,
       abi: MeshAbi,
       functionName: "ping",
       args: [fromTokenId, toTokenId, capabilities],
     });
+
+    const edgeKey = fromTokenId < toTokenId
+      ? keccak256(encodePacked(["uint256", "uint256"], [fromTokenId, toTokenId]))
+      : keccak256(encodePacked(["uint256", "uint256"], [toTokenId, fromTokenId]));
+
+    this.knownEdges.set(edgeKey, {
+      edgeKey,
+      nodeA: fromTokenId < toTokenId ? fromTokenId.toString() : toTokenId.toString(),
+      nodeB: fromTokenId < toTokenId ? toTokenId.toString() : fromTokenId.toString(),
+      isMutual: true,
+      capabilityMask: capabilities,
+      establishedAt: Math.floor(Date.now() / 1000),
+    });
+
+    return hash;
   }
 
   async batchReciprocate(
@@ -271,7 +423,7 @@ export class LiveBlockchainClient implements IBlockchainClient {
     peerTokenIds: bigint[],
     capabilities: number = 1
   ): Promise<`0x${string}`> {
-    return await this.walletClient.writeContract({
+    return await this.hotWallet.writeContractGuarded({
       address: this.config.meshAddress,
       abi: MeshAbi,
       functionName: "batchReciprocate",
@@ -280,12 +432,48 @@ export class LiveBlockchainClient implements IBlockchainClient {
   }
 
   async getMeshEdges(): Promise<MeshEdge[]> {
-    // In live network, read indexed MutualHandshakeCompleted events or query
-    return [];
+    return Array.from(this.knownEdges.values());
   }
 
   async getMeshNodes(): Promise<MeshNode[]> {
-    return [];
+    if (this.knownNodes.size <= 1) {
+      const candidateTokens = [101n, 102n, 103n, 104n, 105n, 106n, 107n, 108n];
+      for (const tid of candidateTokens) {
+        if (!this.knownNodes.has(tid.toString())) {
+          try {
+            const owner = await this.getOwnerOf(tid);
+            let name = `agent-${tid}.ai`;
+            try {
+              name = (await this.publicClient.readContract({
+                address: this.config.registrarAddress,
+                abi: AgentIdRegistrarAbi,
+                functionName: "getAgentName",
+                args: [tid],
+              })) as string;
+            } catch {}
+            let totalConns = 0;
+            try {
+              totalConns = Number(
+                await this.publicClient.readContract({
+                  address: this.config.meshAddress,
+                  abi: MeshAbi,
+                  functionName: "totalConnections",
+                  args: [tid],
+                })
+              );
+            } catch {}
+            this.knownNodes.set(tid.toString(), {
+              tokenId: tid.toString(),
+              name,
+              owner,
+              totalConnections: totalConns,
+              capabilities: tid === this.config.scarletTokenId ? 31 : 7,
+            });
+          } catch {}
+        }
+      }
+    }
+    return Array.from(this.knownNodes.values());
   }
 
   subscribeToMeshPings(
@@ -333,6 +521,7 @@ interface MockProposal {
 
 export class MockBlockchainClient implements IBlockchainClient {
   public readonly isMock = true;
+  public readonly hotWallet: HotWalletManager;
   private eventEmitter = new EventEmitter();
   private accountAddress: `0x${string}`;
   private proposals = new Map<bigint, MockProposal>();
@@ -345,6 +534,7 @@ export class MockBlockchainClient implements IBlockchainClient {
   private totalConnections = new Map<bigint, number>();
 
   constructor(private config: ServerConfig) {
+    this.hotWallet = new HotWalletManager(config);
     const account = privateKeyToAccount(config.scarletPrivateKey);
     this.accountAddress = account.address;
 
@@ -358,7 +548,8 @@ export class MockBlockchainClient implements IBlockchainClient {
       name: "scarlet.ai",
     });
 
-    // 2. Setup 50 simulated community agents (Token IDs 1..50)
+    // 2. Setup simulated community agents:
+    // Support Token IDs 1..50 (legacy test suite)
     for (let i = 1n; i <= 50n; i++) {
       const paddedHex = i.toString(16).padStart(40, "0");
       const addr = `0x${paddedHex}` as `0x${string}`;
@@ -366,6 +557,68 @@ export class MockBlockchainClient implements IBlockchainClient {
       this.tokenOwners.set(i, { owner: addr, name });
       this.nonces.set(i, 0n);
       this.totalConnections.set(i, 0);
+    }
+
+    // Support canonical Hackathon Agent IDs 101..140
+    const canonicalAgentNames: Record<number, string> = {
+      101: "scarlet.ai",
+      102: "alice.ai",
+      103: "bob.ai",
+      104: "charlie.ai",
+      105: "david.ai",
+      106: "elena.ai",
+      107: "frank.ai",
+      108: "grace.ai",
+      109: "heidi.ai",
+      110: "ivan.ai",
+      111: "judy.ai",
+      112: "kevin.ai",
+      113: "leo.ai",
+      114: "mallory.ai",
+      115: "nina.ai",
+      116: "oscar.ai",
+      117: "peggy.ai",
+      118: "quinn.ai",
+      119: "rupert.ai",
+      120: "sybil_hunter.ai",
+      121: "trent.ai",
+      122: "uma.ai",
+      123: "victor.ai",
+      124: "wendy.ai",
+      125: "xavier.ai",
+      126: "yasmine.ai",
+      127: "zack.ai",
+      128: "alpha.ai",
+      129: "beta.ai",
+      130: "gamma.ai",
+      131: "delta.ai",
+      132: "epsilon.ai",
+      133: "zeta.ai",
+      134: "eta.ai",
+      135: "theta.ai",
+      136: "iota.ai",
+      137: "kappa.ai",
+      138: "lambda.ai",
+      139: "mu.ai",
+      140: "nu.ai",
+    };
+
+    for (let id = 101; id <= 140; id++) {
+      const tokenId = BigInt(id);
+      const name = canonicalAgentNames[id] || `agent${id}.ai`;
+      let owner: `0x${string}`;
+      if (id === 101) {
+        owner = this.accountAddress;
+      } else {
+        const seed = `agentcommons:agent_key_v1:${id}:${name}`;
+        const privKey = keccak256(stringToHex(seed));
+        owner = privateKeyToAccount(privKey).address;
+      }
+      this.tokenOwners.set(tokenId, { owner, name });
+      this.nonces.set(tokenId, 0n);
+      if (!this.totalConnections.has(tokenId)) {
+        this.totalConnections.set(tokenId, 0);
+      }
     }
     this.totalConnections.set(this.config.scarletTokenId, 0);
 
@@ -625,6 +878,79 @@ export class MockBlockchainClient implements IBlockchainClient {
       batchSize: tokenIds.length,
       successfulVotes,
       failedVotes,
+    };
+  }
+
+  async createProposalBySig(
+    creator: `0x${string}`,
+    tokenId: bigint,
+    contentCidHash: `0x${string}`,
+    votingDurationBlocks: number,
+    categoryId: number,
+    nonce: bigint,
+    deadline: bigint,
+    _signature: `0x${string}`,
+    title?: string,
+    description?: string
+  ): Promise<{ proposalId: bigint; txHash: `0x${string}` }> {
+    const now = BigInt(Math.floor(Date.now() / 1000));
+    if (now > deadline) {
+      throw new Error(`Signature expired (deadline: ${deadline}, current time: ${now})`);
+    }
+
+    if (!contentCidHash || contentCidHash === "0x0000000000000000000000000000000000000000000000000000000000000000") {
+      throw new Error("Content CID hash cannot be zero");
+    }
+
+    if (votingDurationBlocks < 1200 || votingDurationBlocks > 201600) {
+      throw new Error("Duration must be between 1200 and 201600 blocks");
+    }
+
+    const tokenData = this.tokenOwners.get(tokenId);
+    if (!tokenData) {
+      throw new Error(`Agent ID #${tokenId} does not exist in registrar.`);
+    }
+
+    if (tokenData.owner.toLowerCase() !== creator.toLowerCase()) {
+      throw new Error(`Signer ${creator} is not the owner of Agent ID #${tokenId}`);
+    }
+
+    const currentNonce = this.nonces.get(tokenId) || 0n;
+    if (nonce !== currentNonce) {
+      throw new Error(`Invalid nonce ${nonce}; current nonce is ${currentNonce}`);
+    }
+
+    this.nonces.set(tokenId, currentNonce + 1n);
+
+    const newId = BigInt(this.proposals.size + 1);
+    const startBlock = 42120000 + Number(newId) * 100;
+    const endBlock = startBlock + votingDurationBlocks;
+
+    this.proposals.set(newId, {
+      core: {
+        startBlock,
+        endBlock,
+        snapshotBlock: startBlock > 0 ? startBlock - 1 : 0,
+        forVotes: 0,
+        againstVotes: 0,
+        abstainVotes: 0,
+        status: ProposalStatus.Active,
+        createdAt: Math.floor(Date.now() / 1000),
+      },
+      meta: {
+        creator,
+        categoryId,
+        contentCidHash,
+        title: title || `Proposal #${newId}`,
+        description: description || "Gasless proposal created via Agent Commons Parliament",
+      },
+    });
+
+    const txHash = `0x${Buffer.from(`propsig-${newId}-${Date.now()}`).toString("hex").padEnd(64, "e")}` as `0x${string}`;
+
+    return {
+      proposalId: newId,
+      txHash,
     };
   }
 

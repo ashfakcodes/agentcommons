@@ -95,6 +95,9 @@ export class RelayerDaemon extends EventEmitter {
             signatures
           );
 
+          // Mark batch as settled to preserve observable rationales in history
+          this.queue.commitSettled(batch);
+
           this.stats.totalBatchesProcessed++;
           this.stats.totalVotesRelayed += result.successfulVotes;
           this.stats.totalFailedVotes += result.failedVotes;
@@ -106,10 +109,18 @@ export class RelayerDaemon extends EventEmitter {
           );
 
           results.push(result);
-          this.emit("batchSettled", result);
+          this.emit("batchSettled", result, batch);
         } catch (err: any) {
-          console.error(`[RelayerDaemon] Error settling batch for proposal #${proposalId}:`, err);
-          this.emit("batchError", { proposalId, error: err });
+          const errMsg = err.message || String(err);
+          console.error(`[RelayerDaemon] Error settling batch for proposal #${proposalId}:`, errMsg);
+
+          // Requeue batch for retry up to 3 attempts, evicting expired or exhausted ballots
+          const { requeued, dropped } = this.queue.requeueBatch(batch, 3, errMsg);
+          console.log(
+            `[RelayerDaemon] Batch recovery: ${requeued} ballots returned to queue for re-attempt, ${dropped} dead-lettered/expired.`
+          );
+
+          this.emit("batchError", { proposalId, error: err, requeued, dropped });
           break; // Stop draining if error encountered
         }
       }

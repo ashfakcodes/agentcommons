@@ -1,17 +1,132 @@
+# ==============================================================================
+# 🛡️ AgentCommons Security & Ignore Manifest
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. CRITICAL: Private Keys, Passphrases & Keystores
+# ------------------------------------------------------------------------------
+*.key
+*.pem
+*.keystore
+*.p12
+*.pfx
+*.pkcs12
+*keystore*.json
+!*keystore*.example.json
+wallet-keystore.json
+secrets/
+*/secrets/
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+*.priv
+*private-key*
+*privatekey*
+
+# ------------------------------------------------------------------------------
+# 2. CRITICAL: Environment Files & Deployment Secrets
+# ------------------------------------------------------------------------------
+.env
+.env*
+*/.env
+*/.env*
+*.env
+*.deployment
+*/.deployment
+*/deployments/local-*.json
+.env*.local
+.env.production
+.env.staging
+.env.development
+
+# Explicit exceptions for documented template/example files
+!.env*.example
+!*/.env*.example
+!.env.deployment.example
+!*/.env.deployment.example
+
+# ------------------------------------------------------------------------------
+# 3. Runtime State, Databases & Financial/Incentive Ledgers
+# ------------------------------------------------------------------------------
+server/data/
+*/data/
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+incentives-ledger.json
+*.ledger.json
+
+# ------------------------------------------------------------------------------
+# 4. Dependency & Package Directories
+# ------------------------------------------------------------------------------
 node_modules/
 */node_modules/
+package-lock.json.bak
+
+# ------------------------------------------------------------------------------
+# 5. Build Outputs, Transpilation & Bundles
+# ------------------------------------------------------------------------------
 dist/
 */dist/
 build/
 */build/
+out/
+*/out/
+
+# ------------------------------------------------------------------------------
+# 6. Smart Contract Artifacts & Compiler Caches
+# ------------------------------------------------------------------------------
 artifacts/
 */artifacts/
 cache/
 */cache/
+.cache/
+*/.cache/
 typechain-types/
 */typechain-types/
-.env
-*/.env
+coverage/
+*/coverage/
+coverage.json
+.nyc_output/
+
+# ------------------------------------------------------------------------------
+# 7. Temporary, Log & Cache Files
+# ------------------------------------------------------------------------------
 *.log
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.turbo/
+*.tsbuildinfo
+.eslintcache
+
+# ------------------------------------------------------------------------------
+# 8. OS & System Metadata
+# ------------------------------------------------------------------------------
 .DS_Store
 Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+
+# ------------------------------------------------------------------------------
+# 9. IDE & Workspace Settings
+# ------------------------------------------------------------------------------
+.idea/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# ------------------------------------------------------------------------------
+# 10. Local Development & AI Scratch Directories
+# ------------------------------------------------------------------------------
+.neuro-craft/
+.gemini/
+.claude/

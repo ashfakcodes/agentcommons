@@ -7,6 +7,10 @@ export default {
   theme: {
     extend: {
       colors: {
+        obsidian: '#050505',
+        platinum: '#e5e4e2',
+        'steel-blue': '#8fa3b8',
+        'midnight-elegance': '#aeb2b8',
         cyber: {
           dark: '#08090d',
           card: '#0f121d',
@@ -19,6 +23,12 @@ export default {
           emerald: '#10b981',
           rose: '#f43f5e'
         }
+      },
+      fontFamily: {
+        sans: ['"Google Sans"', '"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+        'google-sans': ['"Google Sans"', 'sans-serif'],
+        caveat: ['"Caveat"', 'cursive'],
+        mono: ['"JetBrains Mono"', 'monospace'],
       },
       boxShadow: {
         'cyan-glow': '0 0 20px rgba(0, 240, 255, 0.25)',

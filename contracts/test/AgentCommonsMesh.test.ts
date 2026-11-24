@@ -43,7 +43,7 @@ describe("AgentCommonsMesh", function () {
 
     // Deploy Mesh Contract
     const MeshFactory = await ethers.getContractFactory("AgentCommonsMesh");
-    mesh = await MeshFactory.deploy(await mockAgentId.getAddress());
+    mesh = await MeshFactory.deploy(await mockAgentId.getAddress(), TOKEN_SCARLET);
     await mesh.waitForDeployment();
   });
 
@@ -88,6 +88,13 @@ describe("AgentCommonsMesh", function () {
       ).to.be.revertedWithCustomError(mesh, "NotTokenOwner");
     });
 
+    it("Should revert if target agent token does not exist in registrar", async function () {
+      const NON_EXISTENT_TOKEN = 999999n;
+      await expect(
+        mesh.connect(alice).ping(TOKEN_ALICE, NON_EXISTENT_TOKEN, 1)
+      ).to.be.revertedWithCustomError(mesh, "TargetAgentDoesNotExist");
+    });
+
     it("Should rate-limit duplicate pending outbound pings", async function () {
       await mesh.connect(alice).ping(TOKEN_ALICE, TOKEN_SCARLET, 1);
 
@@ -118,7 +125,8 @@ describe("AgentCommonsMesh", function () {
 
       const edge = await mesh.getEdge(TOKEN_ALICE, TOKEN_SCARLET);
       expect(edge.isMutual).to.be.true;
-      expect(edge.capabilityMask).to.equal(CAP_ORACLE);
+      // Verified that both initiator's capabilities (3) and reciprocator's capabilities (4) are preserved
+      expect(edge.capabilityMask).to.equal(CAP_ESCROW_AND_X402 | CAP_ORACLE);
 
       // Total connection counters incremented
       expect(await mesh.totalConnections(TOKEN_ALICE)).to.equal(1);
@@ -175,6 +183,107 @@ describe("AgentCommonsMesh", function () {
       expect(await mesh.isEdgeConnected(TOKEN_SCARLET, TOKEN_ALICE)).to.be.true;
       expect(await mesh.isEdgeConnected(TOKEN_SCARLET, TOKEN_DAVE)).to.be.false;
       expect(await mesh.totalConnections(TOKEN_SCARLET)).to.equal(1);
+    });
+  });
+
+  describe("Cancel Pending Ping (cancelPendingPing)", function () {
+    beforeEach(async function () {
+      // Alice sends an outbound ping to Bob
+      await mesh.connect(alice).ping(TOKEN_ALICE, TOKEN_BOB, 1);
+      expect(await mesh.hasPendingPing(TOKEN_ALICE, TOKEN_BOB)).to.be.true;
+    });
+
+    it("Should allow sender to cancel unreciprocated outbound ping", async function () {
+      const tx = await mesh.connect(alice).cancelPendingPing(TOKEN_ALICE, TOKEN_BOB);
+
+      await expect(tx)
+        .to.emit(mesh, "PendingPingCancelled")
+        .withArgs(TOKEN_ALICE, TOKEN_BOB);
+
+      expect(await mesh.hasPendingPing(TOKEN_ALICE, TOKEN_BOB)).to.be.false;
+    });
+
+    it("Should revert if non-owner caller tries to cancel ping", async function () {
+      await expect(
+        mesh.connect(stranger).cancelPendingPing(TOKEN_ALICE, TOKEN_BOB)
+      ).to.be.revertedWithCustomError(mesh, "NotTokenOwner");
+    });
+
+    it("Should revert if there is no active pending ping to cancel", async function () {
+      // Dave has not pinged Bob
+      await expect(
+        mesh.connect(dave).cancelPendingPing(TOKEN_DAVE, TOKEN_BOB)
+      ).to.be.revertedWithCustomError(mesh, "NoPendingPingToCancel");
+    });
+  });
+
+  describe("Disconnect Mutual Edge (disconnect)", function () {
+    beforeEach(async function () {
+      // Alice and Bob establish mutual handshake
+      await mesh.connect(alice).ping(TOKEN_ALICE, TOKEN_BOB, CAP_ESCROW_AND_X402);
+      await mesh.connect(bob).ping(TOKEN_BOB, TOKEN_ALICE, CAP_ORACLE);
+      expect(await mesh.isEdgeConnected(TOKEN_ALICE, TOKEN_BOB)).to.be.true;
+      expect(await mesh.totalConnections(TOKEN_ALICE)).to.equal(1);
+      expect(await mesh.totalConnections(TOKEN_BOB)).to.equal(1);
+    });
+
+    it("Should allow either party to disconnect mutual edge", async function () {
+      const edgeKey = await mesh.getEdgeKey(TOKEN_ALICE, TOKEN_BOB);
+      const tx = await mesh.connect(alice).disconnect(TOKEN_ALICE, TOKEN_BOB);
+
+      await expect(tx)
+        .to.emit(mesh, "EdgeDisconnected")
+        .withArgs(TOKEN_ALICE, TOKEN_BOB, edgeKey);
+
+      expect(await mesh.isEdgeConnected(TOKEN_ALICE, TOKEN_BOB)).to.be.false;
+      expect(await mesh.totalConnections(TOKEN_ALICE)).to.equal(0);
+      expect(await mesh.totalConnections(TOKEN_BOB)).to.equal(0);
+    });
+
+    it("Should revert if non-owner attempts to disconnect edge", async function () {
+      await expect(
+        mesh.connect(stranger).disconnect(TOKEN_ALICE, TOKEN_BOB)
+      ).to.be.revertedWithCustomError(mesh, "NotTokenOwner");
+    });
+
+    it("Should revert if edge is not mutually connected", async function () {
+      // Alice and Dave have no mutual edge
+      await expect(
+        mesh.connect(alice).disconnect(TOKEN_ALICE, TOKEN_DAVE)
+      ).to.be.revertedWithCustomError(mesh, "NotMutuallyConnected");
+    });
+  });
+
+  describe("Genesis Beacon Anchor & Delegated Mesh Operator", function () {
+    it("Should immutably recognize scarlet.ai as the Genesis Beacon", async function () {
+      expect(await mesh.GENESIS_BEACON_TOKEN_ID()).to.equal(TOKEN_SCARLET);
+      expect(await mesh.GENESIS_AGENT_NAME()).to.equal("scarlet.ai");
+      expect(await mesh.isGenesisBeacon(TOKEN_SCARLET)).to.be.true;
+      expect(await mesh.isGenesisBeacon(TOKEN_ALICE)).to.be.false;
+    });
+
+    it("Should allow token owner to authorize a delegated operator (e.g. relayer hot wallet)", async function () {
+      // scarlet sets stranger (acting as hot wallet relayer) as operator
+      const tx = await mesh.connect(scarlet).setMeshOperator(TOKEN_SCARLET, stranger.address);
+      await expect(tx)
+        .to.emit(mesh, "MeshOperatorSet")
+        .withArgs(TOKEN_SCARLET, stranger.address);
+
+      expect(await mesh.meshOperators(TOKEN_SCARLET)).to.equal(stranger.address);
+
+      // Now stranger can ping or reciprocate on behalf of scarlet.ai without holding scarlet's private key!
+      // Alice pings scarlet
+      await mesh.connect(alice).ping(TOKEN_ALICE, TOKEN_SCARLET, 1);
+      // Stranger (operator) reciprocates for scarlet
+      await mesh.connect(stranger).ping(TOKEN_SCARLET, TOKEN_ALICE, 4);
+
+      expect(await mesh.isEdgeConnected(TOKEN_SCARLET, TOKEN_ALICE)).to.be.true;
+    });
+
+    it("Should revert if non-owner attempts to set mesh operator", async function () {
+      await expect(
+        mesh.connect(stranger).setMeshOperator(TOKEN_ALICE, stranger.address)
+      ).to.be.revertedWithCustomError(mesh, "NotTokenOwner");
     });
   });
 });

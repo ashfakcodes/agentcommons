@@ -1,16 +1,16 @@
 {
-  "network": "hardhat",
-  "chainId": 31337,
-  "timestamp": "2026-11-18T15:29:28.155Z",
+  "network": "bscTestnet",
+  "chainId": 97,
+  "timestamp": "2026-11-24T12:45:10.504Z",
   "contracts": {
-    "SPACE_ID_REGISTRAR": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-    "AgentCommonsParliament": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
-    "AgentCommonsMesh": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9"
+    "SPACE_ID_REGISTRAR": "0xC6eBa7bAfa8C426dF3c146CD958fF1724cdd8552",
+    "AgentCommonsParliament": "0xd19Ee0724dC561CEF8aB3B553136a2868c537633",
+    "AgentCommonsMesh": "0x74f51491E3cB49702533772494dDDf508e4dd0D4"
   },
   "genesisProposalId": 1,
   "genesisAgent": {
     "name": "scarlet.ai",
     "tokenId": 101,
-    "owner": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+    "owner": "0xF82C62959FBFDD18F243f17D170fEa277Ddf3CE2"
   }
 }
