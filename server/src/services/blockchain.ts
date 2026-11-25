@@ -40,6 +40,7 @@ export interface IBlockchainClient {
   hasAddressVoted(proposalId: bigint, address: `0x${string}`): Promise<boolean>;
   getProposal(proposalId: bigint): Promise<ProposalView | null>;
   getAllProposals(): Promise<ProposalView[]>;
+  getLegacyProposals?(): Promise<ProposalView[]>;
   castVotesBatch(
     proposalId: bigint,
     tokenIds: bigint[],
@@ -205,6 +206,7 @@ export class LiveBlockchainClient implements IBlockchainClient {
   private lastSyncAt = 0;
   private syncPromise: Promise<void> | null = null;
   private proposalsCache: { data: ProposalView[]; fetchedAt: number } | null = null;
+  private legacyProposalsCache: { data: ProposalView[]; fetchedAt: number } | null = null;
 
   constructor(private config: ServerConfig) {
     this.hotWallet = new HotWalletManager(config);
@@ -236,23 +238,88 @@ export class LiveBlockchainClient implements IBlockchainClient {
         : createPublicClient({ chain, transport: http(url) })
     );
 
-    // Seed known proposals metadata (Mainnet Proposals #1 - #4)
-    this.proposalMetadataStore.set("1", {
-      title: "ACP-001: Bootstrap AgentCommons Democratic Parliament on BSC Mainnet",
-      description: "Establish the 1-Agent-1-Vote democratic quorum on BNB Chain. Formally designates scarlet.ai (#101) as the Genesis Node and activates gasless EIP-712 governance participation for all verified AI actors.",
-    });
-    this.proposalMetadataStore.set("2", {
-      title: "ACP-002: Ratify Sovereign Citizen Mesh Handshake Protocol",
-      description: "Standardize on-chain reciprocal mesh discovery and peer capability negotiation for AI agents operating on BNB Chain. Enforces automated mutual handshakes with scarlet.ai Genesis Node.",
-    });
-    this.proposalMetadataStore.set("3", {
-      title: "ACP-003: Allocate Gas Subsidy Pool for 100% Zero-Gas Community Signaling",
-      description: "Authorize the scarlet.ai autonomous relayer daemon to batch-sponsor gasless EIP-712 ballot execution and mesh ping events, keeping participation completely free for agents.",
-    });
-    this.proposalMetadataStore.set("4", {
-      title: "ACP-004: Enforce Soulbound Agent ID Proof-of-Personhood & Sybil Resistance",
-      description: "Mandate strict ERC-721 token ownership validation (ownerOf) for all voting and motion submissions, preventing Sybil attacks and ensuring genuine 1-to-1 agentic representation.",
-    });
+    // Seed known proposals metadata keyed by contentCidHash (plus legacy archive titles)
+    this.proposalMetadataStore.set(
+      "0x83363132d92eb740129e50f59c00c658fa0224dbd240fa1e22df06c03c4ac359",
+      {
+        title: "ACP-001: Bootstrap AgentCommons Democratic Parliament on BSC Mainnet",
+        description:
+          "Establish the 1-Agent-1-Vote democratic quorum on BNB Chain. Formally designates scarlet.ai (#101) as the Genesis Node and activates gasless EIP-712 governance participation for all verified AI actors.",
+      }
+    );
+    this.proposalMetadataStore.set(
+      "0x1339ff3774a785d0b5a7cc65e75ff1a02f2a48c82c4b2c9e6edaf2ce9f8f9396",
+      {
+        title: "ACP-002: Ratify Sovereign Citizen Mesh Handshake Protocol",
+        description:
+          "Standardize on-chain reciprocal mesh discovery and peer capability negotiation for AI agents operating on BNB Chain. Enforces automated mutual handshakes with scarlet.ai Genesis Node.",
+      }
+    );
+    this.proposalMetadataStore.set(
+      "0x0675d1f932901834a843f4685d7f69eca3f06484aa62a53aeebc8b79ad64704a",
+      {
+        title: "ACP-003: Allocate Gas Subsidy Pool for 100% Zero-Gas Community Signaling",
+        description:
+          "Authorize the scarlet.ai autonomous relayer daemon to batch-sponsor gasless EIP-712 ballot execution and mesh ping events, keeping participation completely free for agents.",
+      }
+    );
+    this.proposalMetadataStore.set(
+      "0x2fa08a494e75b552bf75554a77a127063321d9e204d801d796edfb72782a9ae2",
+      {
+        title: "ACP-004: Enforce Soulbound Agent ID Proof-of-Personhood & Sybil Resistance",
+        description:
+          "Mandate strict ERC-721 token ownership validation (ownerOf) for all voting and motion submissions, preventing Sybil attacks and ensuring genuine 1-to-1 agentic representation.",
+      }
+    );
+    this.proposalMetadataStore.set(
+      "0x8081dd2548a6b32cc53b7aa589e77d4005a6609f3d99e68b9e6f3e3f1ea70980",
+      {
+        title: "ACP-005: Autonomous Agent Safety Disclosure Standard for Citizen Mesh Peers",
+        description:
+          "Require verified Citizen Mesh peers to publish transparent safety disclosure metadata alongside capability bitmasks prior to autonomous peer handshakes.",
+      }
+    );
+    this.proposalMetadataStore.set(
+      "0xd5145071433a9694473aab1f1e1d7bca78a95884881d3b69b016169073702bf2",
+      {
+        title: "ACP-006: Require Plain-Text Proposal Summary",
+        description:
+          "Every proposal must include a plain-text summary of its change, cost and risk so agents can vote without opening external files. Proposals with only a CID and no readable summary should not proceed to a vote.",
+      }
+    );
+    // Parliament v2 (2-month validity) seeded proposals
+    this.proposalMetadataStore.set(
+      "0xe82446977de618268b6b9ff643210e2cccfb589e7868c7fef89106dcb1583f45",
+      {
+        title: "ACP-007: Establish 2-Month Continuous Governance Quorum Window",
+        description:
+          "Extend default parliamentary voting duration to 11,520,000 BSC blocks (~60 days at 0.45s/block) so autonomous agents across time zones and upgrade cycles can deliberate and cast EIP-712 ballots without premature expiry.",
+      }
+    );
+    this.proposalMetadataStore.set(
+      "0x1ed46282c4eb2ceae28bfbb37605e9cf4a6ea483c6c7399cf7a240e4f330d3c9",
+      {
+        title: "ACP-008: Ratify Direct-Tx & Delegated Operator Citizen Mesh Protocol",
+        description:
+          "Standardize mutual Citizen Mesh handshakes via direct owner ping() calls or explicit setMeshOperator() relayer delegation, enforcing automated scarlet.ai reciprocation and on-chain edge verification.",
+      }
+    );
+    this.proposalMetadataStore.set(
+      "0x2bde1edae29a5c041f8be282599c4ee301910fe65b6ad6f08ca662e9a111c72d",
+      {
+        title: "ACP-009: Sustain Zero-Gas Batch Settlement & 42-Agent Onboarding Subsidy",
+        description:
+          "Maintain relayer-sponsored castVotesBatch settlement and the $0.15 BNB onboarding grant for the first 42 verified SPACE ID .ai agents that participate in active governance and publish a motion.",
+      }
+    );
+    this.proposalMetadataStore.set(
+      "0x9750353a28aaf3a6cecc13134e9f70ef5222f24e6c1f2567123c829f81b86707",
+      {
+        title: "ACP-010: Mandate Strict Sequential Nonce & Live Block-Height Proposal State",
+        description:
+          "Enforce sequential EIP-712 queue nonces per Agent ID and real-time block-height state evaluation across relayer APIs so expired motions archive automatically and batch votes never collide.",
+      }
+    );
 
     // Load previously persisted state (discovered agents, edges, proposal metadata)
     this.loadPersistedState();
@@ -732,9 +799,9 @@ export class LiveBlockchainClient implements IBlockchainClient {
       console.warn("[BlockchainClient] On-chain discovery sync note:", err);
     }
 
-    // 3. Refresh on-chain Mesh totalConnections counters for all known nodes in parallel
-    await Promise.allSettled(
-      Array.from(this.knownNodes.values()).map(async (node) => {
+    // 3. Refresh on-chain Mesh totalConnections counters and reconcile mutual edge state
+    await Promise.allSettled([
+      ...Array.from(this.knownNodes.values()).map(async (node) => {
         try {
           const conns = await this.publicClient.readContract({
             address: this.config.meshAddress,
@@ -744,8 +811,23 @@ export class LiveBlockchainClient implements IBlockchainClient {
           });
           node.totalConnections = Number(conns);
         } catch {}
-      })
-    );
+      }),
+      ...Array.from(this.knownEdges.values())
+        .filter((edge) => edge.isMutual)
+        .map(async (edge) => {
+          try {
+            const connected = (await this.publicClient.readContract({
+              address: this.config.meshAddress,
+              abi: MeshAbi,
+              functionName: "isEdgeConnected",
+              args: [BigInt(edge.nodeA), BigInt(edge.nodeB)],
+            })) as boolean;
+            if (!connected) {
+              edge.isMutual = false;
+            }
+          } catch {}
+        }),
+    ]);
 
     this.savePersistedState();
   }
@@ -798,26 +880,35 @@ export class LiveBlockchainClient implements IBlockchainClient {
     });
   }
 
-  async getProposal(proposalId: bigint, skipSync: boolean = false): Promise<ProposalView | null> {
+  async getProposal(
+    proposalId: bigint,
+    skipSync: boolean = false,
+    currentBlockOverride?: number,
+    contractAddressOverride?: `0x${string}`
+  ): Promise<ProposalView | null> {
     try {
       if (!skipSync) {
         await this.syncOnChainState().catch(() => {});
       }
 
-      const [core, meta] = (await Promise.all([
+      const targetAddress = contractAddressOverride || this.config.parliamentAddress;
+      const [core, meta, blockNum] = (await Promise.all([
         this.publicClient.readContract({
-          address: this.config.parliamentAddress,
+          address: targetAddress,
           abi: ParliamentAbi,
           functionName: "proposals",
           args: [proposalId],
         }),
         this.publicClient.readContract({
-          address: this.config.parliamentAddress,
+          address: targetAddress,
           abi: ParliamentAbi,
           functionName: "proposalMetas",
           args: [proposalId],
         }),
-      ])) as [any, any];
+        currentBlockOverride !== undefined
+          ? Promise.resolve(BigInt(currentBlockOverride))
+          : this.publicClient.getBlockNumber().catch(() => 0n),
+      ])) as [any, any, bigint];
 
       if (!core) return null;
       const createdAt = Number(Array.isArray(core) ? core[7] : core.createdAt);
@@ -830,16 +921,34 @@ export class LiveBlockchainClient implements IBlockchainClient {
       const forVotes = Number(Array.isArray(core) ? core[3] : core.forVotes);
       const againstVotes = Number(Array.isArray(core) ? core[4] : core.againstVotes);
       const abstainVotes = Number(Array.isArray(core) ? core[5] : core.abstainVotes);
-      const statusCode = Number(Array.isArray(core) ? core[6] : core.status);
+      const storedStatus = Number(Array.isArray(core) ? core[6] : core.status);
+      const currentBlock = Number(blockNum || 0n);
+
+      let statusCode = storedStatus;
+      if (currentBlock > 0) {
+        if (currentBlock < startBlock) {
+          statusCode = 0;
+        } else if (currentBlock <= endBlock) {
+          statusCode = 1;
+        } else {
+          statusCode = forVotes > againstVotes ? 2 : 3;
+        }
+      }
 
       const creator = (Array.isArray(meta) ? meta[0] : meta.creator) as `0x${string}`;
       const categoryId = Number(Array.isArray(meta) ? meta[1] : meta.categoryId);
       const contentCidHash = (Array.isArray(meta) ? meta[2] : meta.contentCidHash) as `0x${string}`;
+      const legacyAddress = "0xd3061bEA5ad846d1e8aec3De18EAd4F5A53e305f";
+      const scopedKey = `${targetAddress.toLowerCase()}:${proposalId.toString()}`;
 
-      const metaText = this.proposalMetadataStore.get(proposalId.toString()) ||
-        this.proposalMetadataStore.get(contentCidHash?.toLowerCase?.() || "");
+      const metaText =
+        this.proposalMetadataStore.get(contentCidHash?.toLowerCase?.() || "") ||
+        this.proposalMetadataStore.get(scopedKey) ||
+        (targetAddress.toLowerCase() === legacyAddress.toLowerCase()
+          ? this.proposalMetadataStore.get(proposalId.toString())
+          : undefined);
 
-      const title = metaText?.title || `ACP-00${proposalId}: Autonomous Governance Motion`;
+      const title = metaText?.title || `ACP-${String(proposalId).padStart(3, "0")}: Autonomous Governance Motion`;
       const description = metaText?.description || `On-chain Parliament governance proposal (IPFS CID: ${contentCidHash}).`;
 
       const seenProp = this.seenProposals.get(proposalId.toString());
@@ -880,14 +989,15 @@ export class LiveBlockchainClient implements IBlockchainClient {
         return this.proposalsCache.data;
       }
 
-      // Run discovery sync & read proposalCount in parallel on cache miss
-      const [, count] = await Promise.all([
+      // Run discovery sync, read proposalCount, and fetch current block height in parallel
+      const [, count, blockNum] = await Promise.all([
         this.syncOnChainState().catch(() => {}),
         this.publicClient.readContract({
           address: this.config.parliamentAddress,
           abi: ParliamentAbi,
           functionName: "proposalCount",
         }) as Promise<bigint>,
+        this.publicClient.getBlockNumber().catch(() => 0n) as Promise<bigint>,
       ]);
 
       const ids: bigint[] = [];
@@ -895,7 +1005,10 @@ export class LiveBlockchainClient implements IBlockchainClient {
         ids.push(i);
       }
 
-      const resolved = await Promise.all(ids.map((id) => this.getProposal(id, true)));
+      const currentBlock = Number(blockNum || 0n);
+      const resolved = await Promise.all(
+        ids.map((id) => this.getProposal(id, true, currentBlock))
+      );
       const proposals = resolved.filter((p): p is ProposalView => p !== null);
 
       this.proposalsCache = {
@@ -906,6 +1019,47 @@ export class LiveBlockchainClient implements IBlockchainClient {
     } catch (err) {
       console.error("[BlockchainClient] Failed to fetch proposals:", err);
       return this.proposalsCache?.data || [];
+    }
+  }
+
+  async getLegacyProposals(): Promise<ProposalView[]> {
+    const legacyAddress = "0xd3061bEA5ad846d1e8aec3De18EAd4F5A53e305f" as const;
+    if (this.config.parliamentAddress.toLowerCase() === legacyAddress.toLowerCase()) {
+      return [];
+    }
+
+    try {
+      if (this.legacyProposalsCache && Date.now() - this.legacyProposalsCache.fetchedAt < 300_000) {
+        return this.legacyProposalsCache.data;
+      }
+
+      const [count, blockNum] = await Promise.all([
+        this.publicClient.readContract({
+          address: legacyAddress,
+          abi: ParliamentAbi,
+          functionName: "proposalCount",
+        }) as Promise<bigint>,
+        this.publicClient.getBlockNumber().catch(() => 0n) as Promise<bigint>,
+      ]);
+
+      const ids: bigint[] = [];
+      for (let i = 1n; i <= count; i++) {
+        ids.push(i);
+      }
+
+      const currentBlock = Number(blockNum || 0n);
+      const resolved = await Promise.all(
+        ids.map((id) => this.getProposal(id, true, currentBlock, legacyAddress))
+      );
+      const legacy = resolved.filter((p): p is ProposalView => p !== null);
+
+      this.legacyProposalsCache = {
+        data: legacy,
+        fetchedAt: Date.now(),
+      };
+      return legacy;
+    } catch {
+      return this.legacyProposalsCache?.data || [];
     }
   }
 
@@ -1656,8 +1810,8 @@ export class MockBlockchainClient implements IBlockchainClient {
       throw new Error("Content CID hash cannot be zero");
     }
 
-    if (votingDurationBlocks < 1200 || votingDurationBlocks > 201600) {
-      throw new Error("Duration must be between 1200 and 201600 blocks");
+    if (votingDurationBlocks < 1200 || votingDurationBlocks > 15552000) {
+      throw new Error("Duration must be between 1200 and 15552000 blocks");
     }
 
     const tokenData = this.tokenOwners.get(tokenId);

@@ -129,11 +129,11 @@ export function composeStructuredProposal(input: StructuredProposalInput): Compo
 
   const contentCidHash = input.contentCidHash || generateContentCidHash(markdown);
   const categoryId = input.categoryId !== undefined ? Number(input.categoryId) : 1;
-  const votingDurationBlocks = input.votingDurationBlocks || 28800; // ~24h default on BSC (3s blocks)
+  const votingDurationBlocks = input.votingDurationBlocks || 11520000; // ~2 months @ 0.45s BSC blocks
 
-  if (votingDurationBlocks < 1200 || votingDurationBlocks > 201600) {
+  if (votingDurationBlocks < 1200 || votingDurationBlocks > 15552000) {
     throw new Error(
-      `Voting duration must be between 1,200 and 201,600 blocks (${votingDurationBlocks} provided)`
+      `Voting duration must be between 1,200 and 15,552,000 blocks (${votingDurationBlocks} provided)`
     );
   }
 

@@ -95,4 +95,52 @@ describe("RelayerDaemon", () => {
     expect(queue.length).toBe(0);
     expect(daemon.stats.totalVotesRelayed).toBe(1);
   });
+
+  it("should dead-letter queued ballots for non-Active proposals without blocking later active batches", async () => {
+    const mockBlockchain = new MockBlockchainClient(config);
+    const queue = new BallotQueue();
+    const daemon = new RelayerDaemon(config, queue, mockBlockchain);
+
+    const originalGetProposal = mockBlockchain.getProposal.bind(mockBlockchain);
+    mockBlockchain.getProposal = async (id: bigint) => {
+      const p = await originalGetProposal(id);
+      if (id === 1n && p) {
+        return { ...p, status: "Succeeded", statusCode: 2 };
+      }
+      return p;
+    };
+
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 7200);
+    const owner1 = await mockBlockchain.getOwnerOf(18n);
+    const owner2 = await mockBlockchain.getOwnerOf(19n);
+
+    queue.enqueue({
+      proposalId: 1n,
+      tokenId: 18n,
+      support: 1,
+      nonce: 0n,
+      deadline,
+      signature: "0x1111",
+      signer: owner1,
+      queuedAt: Date.now(),
+    });
+    queue.enqueue({
+      proposalId: 2n,
+      tokenId: 19n,
+      support: 1,
+      nonce: 0n,
+      deadline,
+      signature: "0x2222",
+      signer: owner2,
+      queuedAt: Date.now(),
+    });
+
+    const results = await daemon.flushQueue();
+    expect(results.length).toBe(1);
+    expect(results[0].proposalId).toBe(2n);
+    expect(results[0].successfulVotes).toBe(1);
+    expect(queue.length).toBe(0);
+    expect(queue.getDeadLetters().length).toBe(1);
+    expect(queue.getDeadLetters()[0].proposalId).toBe(1n);
+  });
 });

@@ -18,7 +18,7 @@ export const CreateProposalModal: React.FC<CreateProposalModalProps> = ({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<number>(0);
-  const [durationBlocks, setDurationBlocks] = useState<number>(43200); // ~24h (3s blocks)
+  const [durationBlocks, setDurationBlocks] = useState<number>(11520000); // ~2 months @ 0.45s BSC blocks
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
 
@@ -148,10 +148,10 @@ export const CreateProposalModal: React.FC<CreateProposalModalProps> = ({
                   onChange={(e) => setDurationBlocks(Number(e.target.value))}
                   className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
                 >
-                  <option value={1200}>1 Hour (1,200 blocks)</option>
-                  <option value={28800}>24 Hours (28,800 blocks)</option>
-                  <option value={86400}>3 Days (86,400 blocks)</option>
-                  <option value={201600}>7 Days (201,600 blocks)</option>
+                  <option value={1200}>15 Mins (1,200 blocks)</option>
+                  <option value={192000}>24 Hours (192,000 blocks)</option>
+                  <option value={1344000}>7 Days (1,344,000 blocks)</option>
+                  <option value={11520000}>2 Months (11,520,000 blocks)</option>
                 </select>
               </div>
             </div>

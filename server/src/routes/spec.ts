@@ -163,7 +163,7 @@ export function buildAgentSpec(config: ServerConfig, baseUrl: string = "http://l
             title: "string (required)",
             description: "string (required)",
             contentCidHash: "0x bytes32 (optional, auto-computed from description)",
-            votingDurationBlocks: "number (optional, default 28800)",
+            votingDurationBlocks: "number (optional, default 11520000 for ~2 months on BSC)",
             categoryId: "number (optional, default 1)",
             nonce: "string | number (optional, auto-queried on-chain)",
             deadline: "string | number (optional, default now + 24h)",
@@ -183,7 +183,7 @@ export function buildAgentSpec(config: ServerConfig, baseUrl: string = "http://l
             title: "string (required, plain text)",
             description: "string (required, 1-2 plain-text sentences, max 280 chars, no Markdown or formatting)",
             contentCidHash: "0x bytes32 (required)",
-            votingDurationBlocks: "number (required, 1200..201600)",
+            votingDurationBlocks: "number (required, 1200..15552000, default 11520000)",
             categoryId: "number (required, 0..255)",
             deadline: "string | number (required, future timestamp)",
             signature: "0x hex signature (required, 65 bytes)",
@@ -309,7 +309,7 @@ export function buildAgentSpec(config: ServerConfig, baseUrl: string = "http://l
         description:
           "Establish uniform capability discovery flags for Escrow, x402 Micropayments, and Compute across BNB Chain agents without extra on-chain overhead.",
         categoryId: 3,
-        votingDurationBlocks: 28800,
+        votingDurationBlocks: 11520000,
       },
       proposalPublish: {
         creator: "0x0000000000000000000000000000000000000065",
@@ -318,7 +318,7 @@ export function buildAgentSpec(config: ServerConfig, baseUrl: string = "http://l
         description:
           "Establish uniform capability discovery flags for Escrow, x402 Micropayments, and Compute across BNB Chain agents without extra on-chain overhead.",
         contentCidHash: "0x4361706162696c697479204d61736b205374616e646172640000000000000000",
-        votingDurationBlocks: 28800,
+        votingDurationBlocks: 11520000,
         categoryId: 3,
         deadline: "1795177033",
         signature:
@@ -333,7 +333,7 @@ export function buildAgentSpec(config: ServerConfig, baseUrl: string = "http://l
       previewVote: `curl -s -X POST ${baseUrl}/api/v1/vote/preview -H "Content-Type: application/json" -d '{"proposalId":1,"tokenId":101,"support":1}' | jq .`,
       submitVote: `curl -s -X POST ${baseUrl}/api/v1/vote/submit -H "Content-Type: application/json" -d '{"proposalId":"1","tokenId":"101","support":1,"deadline":"1795177033","signature":"0x...","rationale":"Ecosystem growth alignment"}' | jq .`,
       previewProposal: `curl -s -X POST ${baseUrl}/api/v1/proposals/preview -H "Content-Type: application/json" -d '{"tokenId":101,"title":"Upgrade Relayer Buffer","description":"Allocate 2 BNB","categoryId":1}' | jq .`,
-      publishProposal: `curl -s -X POST ${baseUrl}/api/v1/proposals/publish -H "Content-Type: application/json" -d '{"creator":"0x...","tokenId":"101","title":"Upgrade Relayer Buffer","description":"Allocate 2 BNB","contentCidHash":"0x...","votingDurationBlocks":28800,"categoryId":1,"deadline":"1795177033","signature":"0x...","nonce":"0"}' | jq .`,
+      publishProposal: `curl -s -X POST ${baseUrl}/api/v1/proposals/publish -H "Content-Type: application/json" -d '{"creator":"0x...","tokenId":"101","title":"Upgrade Relayer Buffer","description":"Allocate 2 BNB","contentCidHash":"0x...","votingDurationBlocks":11520000,"categoryId":1,"deadline":"1795177033","signature":"0x...","nonce":"0"}' | jq .`,
     },
   };
 }
@@ -558,10 +558,10 @@ export function createSpecRouter(
           ? (contentCidHash.startsWith("0x") ? contentCidHash : `0x${contentCidHash}`)
           : keccak256(toHex(desc));
 
-      const effDuration = Number(votingDurationBlocks || 28800);
-      if (effDuration < 1200 || effDuration > 201600) {
+      const effDuration = Number(votingDurationBlocks || 11520000);
+      if (effDuration < 1200 || effDuration > 15552000) {
         res.status(400).json({
-          error: `Duration must be between 1,200 and 201,600 blocks (${effDuration} provided)`,
+          error: `Duration must be between 1,200 and 15,552,000 blocks (${effDuration} provided)`,
           code: "INVALID_DURATION",
         });
         return;

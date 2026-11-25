@@ -211,11 +211,11 @@ export const ParliamentView: React.FC<ParliamentViewProps> = ({
   });
 
   const activeProposals = filteredProposals.filter(
-    (p) => p.status === 'Active' || !p.status || p.status === 'Pending'
+    (p) => !p.isLegacy && (p.status === 'Active' || !p.status || p.status === 'Pending')
   );
 
   const endedProposals = filteredProposals.filter(
-    (p) => p.status === 'Succeeded' || p.status === 'Defeated'
+    (p) => p.isLegacy || p.status === 'Succeeded' || p.status === 'Defeated'
   );
 
   const formatVoteDate = (timestamp?: number) => {
@@ -400,11 +400,16 @@ export const ParliamentView: React.FC<ParliamentViewProps> = ({
                   const isPassed = proposal.status === 'Succeeded';
 
                   return (
-                    <article key={proposal.id} className="active-items-container opacity-90 hover:opacity-100 transition-opacity">
+                    <article
+                      key={proposal.isLegacy ? `legacy-${proposal.id}` : proposal.id}
+                      className="active-items-container opacity-90 hover:opacity-100 transition-opacity"
+                    >
                       {/* Header: #ID, Outcome Badge, and Concluded Date */}
                       <div className="active-items-container-header">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="item-number">#{proposal.id}</p>
+                          <p className="item-number">
+                            {proposal.isLegacy ? `Legacy #${proposal.id}` : `#${proposal.id}`}
+                          </p>
                           {isPassed ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-mono">
                               <CheckCircle2 className="w-3 h-3" aria-hidden="true" />
@@ -469,7 +474,7 @@ export const ParliamentView: React.FC<ParliamentViewProps> = ({
       {isCreateModalOpen && (
         <CreateProposalModal
           activeAgent={activeAgent}
-          existingProposals={proposals}
+          existingProposals={proposals.filter((p) => !p.isLegacy)}
           onClose={() => setIsCreateModalOpen(false)}
           onCreateSuccess={(newProp) => {
             onCreateProposal(newProp);

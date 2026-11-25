@@ -70,41 +70,50 @@ export const App: React.FC = () => {
       // 2. Parse Proposals & resolve creatorName dynamically (backend -> liveAgents -> shortened address)
       if (pRes.ok) {
         const pData = await pRes.json();
-        if (pData.proposals && pData.proposals.length > 0) {
-          const categoryNames: Record<number, Proposal['categoryName']> = {
-            0: 'Governance',
-            1: 'Protocol & Mesh',
-            2: 'Gas Subsidy',
-            3: 'Security & Identity',
+        const categoryNames: Record<number, Proposal['categoryName']> = {
+          0: 'Governance',
+          1: 'Protocol & Mesh',
+          2: 'Gas Subsidy',
+          3: 'Security & Identity',
+        };
+        const mapProposal = (p: any, isLegacy: boolean): Proposal => {
+          const creatorAddr = String(p.creator || '');
+          const matchedAgent = liveAgentsSnapshot.find(
+            (a) => a.owner && creatorAddr && a.owner.toLowerCase() === creatorAddr.toLowerCase()
+          );
+          const shortAddr = creatorAddr.length > 10
+            ? `${creatorAddr.slice(0, 6)}...${creatorAddr.slice(-4)}`
+            : creatorAddr || 'Unknown';
+          return {
+            id: Number(p.id),
+            title: p.title || `ACP-${String(p.id).padStart(3, '0')}: Governance Motion`,
+            description: p.description || 'On-chain Parliament governance proposal.',
+            creator: p.creator,
+            creatorName: p.creatorName || matchedAgent?.name || shortAddr,
+            categoryId: Number(p.categoryId || 0),
+            categoryName: categoryNames[Number(p.categoryId || 0)] || 'Governance',
+            contentCidHash: p.contentCidHash,
+            startBlock: Number(p.startBlock || 0),
+            endBlock: Number(p.endBlock || 0),
+            snapshotBlock: Number(p.snapshotBlock || 0),
+            forVotes: Number(p.forVotes || 0),
+            againstVotes: Number(p.againstVotes || 0),
+            abstainVotes: Number(p.abstainVotes || 0),
+            status: p.status || (isLegacy ? 'Succeeded' : 'Active'),
+            createdAt: p.createdAt ? Number(p.createdAt) * 1000 : Date.now(),
+            isLegacy,
           };
-          const mapped: Proposal[] = pData.proposals.map((p: any) => {
-            const creatorAddr = String(p.creator || '');
-            const matchedAgent = liveAgentsSnapshot.find(
-              (a) => a.owner && creatorAddr && a.owner.toLowerCase() === creatorAddr.toLowerCase()
-            );
-            const shortAddr = creatorAddr.length > 10
-              ? `${creatorAddr.slice(0, 6)}...${creatorAddr.slice(-4)}`
-              : creatorAddr || 'Unknown';
-            return {
-              id: Number(p.id),
-              title: p.title || `ACP-00${p.id}: Governance Motion`,
-              description: p.description || 'On-chain Parliament governance proposal.',
-              creator: p.creator,
-              creatorName: p.creatorName || matchedAgent?.name || shortAddr,
-              categoryId: Number(p.categoryId || 0),
-              categoryName: categoryNames[Number(p.categoryId || 0)] || 'Governance',
-              contentCidHash: p.contentCidHash,
-              startBlock: Number(p.startBlock || 0),
-              endBlock: Number(p.endBlock || 0),
-              snapshotBlock: Number(p.snapshotBlock || 0),
-              forVotes: Number(p.forVotes || 0),
-              againstVotes: Number(p.againstVotes || 0),
-              abstainVotes: Number(p.abstainVotes || 0),
-              status: p.status || 'Active',
-              createdAt: p.createdAt ? Number(p.createdAt) * 1000 : Date.now(),
-            };
-          });
-          setProposals(mapped);
+        };
+
+        const currentList: Proposal[] = Array.isArray(pData.proposals)
+          ? pData.proposals.map((p: any) => mapProposal(p, false))
+          : [];
+        const legacyList: Proposal[] = Array.isArray(pData.legacyProposals)
+          ? pData.legacyProposals.map((p: any) => mapProposal(p, true))
+          : [];
+
+        if (currentList.length > 0 || legacyList.length > 0) {
+          setProposals([...currentList, ...legacyList]);
         }
       }
 

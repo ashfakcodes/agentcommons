@@ -12,7 +12,8 @@ export const BSC_CONFIG = {
 export const SPACE_ID_REGISTRAR_ADDRESS = '0x60b9262456de011f7d15a54cdd8c48baaa8b022f';
 
 // AgentCommons Verified Deployment Addresses (BSC Mainnet)
-export const PARLIAMENT_ADDRESS = '0xd3061bEA5ad846d1e8aec3De18EAd4F5A53e305f';
+export const PARLIAMENT_ADDRESS = '0xc1Bd22eC6e5454bf34fEe4547546159ce10FCC82';
+export const LEGACY_PARLIAMENT_ADDRESS = '0xd3061bEA5ad846d1e8aec3De18EAd4F5A53e305f';
 export const MESH_ADDRESS = '0xD7d7e4cBE5690B43551C10ab0AaeeaC96BFf002e';
 
 // Relayer Backend Endpoint (supports production domain & local dev)

@@ -132,11 +132,11 @@ export class ProposalService {
     // 3. Verify voting duration
     if (
       message.votingDurationBlocks < 1200 ||
-      message.votingDurationBlocks > 201600
+      message.votingDurationBlocks > 15552000
     ) {
       return {
         isValid: false,
-        error: `Invalid voting duration: ${message.votingDurationBlocks} blocks. Must be between 1,200 and 201,600 blocks.`,
+        error: `Invalid voting duration: ${message.votingDurationBlocks} blocks. Must be between 1,200 and 15,552,000 blocks.`,
       };
     }
 
@@ -223,9 +223,9 @@ export class ProposalService {
     const cleanCid = (contentCidHash.startsWith("0x") ? contentCidHash : `0x${contentCidHash}`) as `0x${string}`;
 
     // 2. Validate bounds
-    if (vDuration < 1200 || vDuration > 201600) {
+    if (vDuration < 1200 || vDuration > 15552000) {
       throw new Error(
-        `Duration: 1 hr - 7 days (${vDuration} blocks provided, expected 1200 - 201600)`
+        `Duration: 1,200 - 15,552,000 blocks (${vDuration} blocks provided)`
       );
     }
 
@@ -379,9 +379,9 @@ export class ProposalService {
         ? (contentCidHash.startsWith("0x") ? contentCidHash : `0x${contentCidHash}`) as `0x${string}`
         : keccak256(toHex(desc));
 
-    const effDuration = Number(votingDurationBlocks || 28800);
-    if (effDuration < 1200 || effDuration > 201600) {
-      throw new Error(`Duration must be between 1,200 and 201,600 blocks (${effDuration} provided)`);
+    const effDuration = Number(votingDurationBlocks || 11520000);
+    if (effDuration < 1200 || effDuration > 15552000) {
+      throw new Error(`Duration must be between 1,200 and 15,552,000 blocks (${effDuration} provided)`);
     }
 
     const effCategoryId = Number(categoryId !== undefined ? categoryId : 1);

@@ -191,6 +191,76 @@ describe("AgentCommons Relayer REST API", () => {
     expect(res2.body.error).toContain("already pending");
   });
 
+  it("POST /api/v1/vote/submit requires sequential nonce when token already has queued ballot", async () => {
+    const agentPrivKey = generatePrivateKey();
+    const agentAccount = privateKeyToAccount(agentPrivKey);
+    const tokenId = 32n;
+
+    if (instance.blockchain.setMockTokenOwner) {
+      instance.blockchain.setMockTokenOwner(tokenId, agentAccount.address, "seq-nonce.ai");
+    }
+
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 7200);
+    const sig0 = await agentAccount.signTypedData({
+      domain: instance.eip712.getDomain(),
+      types: ballotTypes,
+      primaryType: "Ballot",
+      message: { proposalId: 1n, tokenId, support: 1, nonce: 0n, deadline },
+    });
+
+    const first = await request(instance.app)
+      .post("/api/v1/vote/submit")
+      .send({
+        proposalId: "1",
+        tokenId: tokenId.toString(),
+        support: 1,
+        deadline: deadline.toString(),
+        nonce: "0",
+        signature: sig0,
+      });
+    expect(first.status).toBe(201);
+
+    // Reusing nonce 0 on proposal 2 while proposal 1 is queued must be rejected
+    const reusedSig = await agentAccount.signTypedData({
+      domain: instance.eip712.getDomain(),
+      types: ballotTypes,
+      primaryType: "Ballot",
+      message: { proposalId: 2n, tokenId, support: 1, nonce: 0n, deadline },
+    });
+    const staleRes = await request(instance.app)
+      .post("/api/v1/vote/submit")
+      .send({
+        proposalId: "2",
+        tokenId: tokenId.toString(),
+        support: 1,
+        deadline: deadline.toString(),
+        nonce: "0",
+        signature: reusedSig,
+      });
+    expect(staleRes.status).toBe(400);
+    expect(staleRes.body.code).toBe("STALE_NONCE");
+    expect(staleRes.body.expectedNonce).toBe("1");
+
+    // Sequential nonce 1 should succeed
+    const sig1 = await agentAccount.signTypedData({
+      domain: instance.eip712.getDomain(),
+      types: ballotTypes,
+      primaryType: "Ballot",
+      message: { proposalId: 2n, tokenId, support: 1, nonce: 1n, deadline },
+    });
+    const second = await request(instance.app)
+      .post("/api/v1/vote/submit")
+      .send({
+        proposalId: "2",
+        tokenId: tokenId.toString(),
+        support: 1,
+        deadline: deadline.toString(),
+        nonce: "1",
+        signature: sig1,
+      });
+    expect(second.status).toBe(201);
+  });
+
   it("POST /api/v1/mesh/ping emits ping and triggers reciprocal handshake", async () => {
     const res = await request(instance.app)
       .post("/api/v1/mesh/ping")

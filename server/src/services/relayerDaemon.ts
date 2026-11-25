@@ -81,6 +81,15 @@ export class RelayerDaemon extends EventEmitter {
           `[RelayerDaemon] Processing batch of ${batch.length} ballots for Proposal #${proposalId}...`
         );
 
+        // Guard: evict queued ballots for proposals that are no longer Active on-chain
+        const proposal = await this.blockchain.getProposal(proposalId).catch(() => null);
+        if (!proposal || proposal.statusCode !== 1) {
+          const reason = `Proposal #${proposalId} is no longer active (status: ${proposal?.status || "NotFound"}).`;
+          console.warn(`[RelayerDaemon] ${reason} Dead-lettering ${batch.length} stale ballot(s).`);
+          this.queue.requeueBatch(batch, 0, reason);
+          continue;
+        }
+
         const tokenIds = batch.map((b) => b.tokenId);
         const supports = batch.map((b) => b.support);
         const deadlines = batch.map((b) => b.deadline);

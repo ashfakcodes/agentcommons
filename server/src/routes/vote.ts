@@ -139,6 +139,17 @@ export function createVoteRouter(
         return;
       }
 
+      if (queue.isTokenQueued(pId, tId) || queue.isSignerQueued(pId, tokenOwner)) {
+        selfCorrectingError(res, 409, {
+          error: `Agent ID #${tId} ballot for Proposal #${pId} is already pending in the relayer queue.`,
+          code: SecurityErrorCodes.BALLOT_ALREADY_QUEUED,
+          tokenId: tId.toString(),
+          proposalId: pId.toString(),
+          retryHint: "Ballot is already queued for batch settlement. Check GET /api/v1/vote/queue or wait for the next batch flush.",
+        });
+        return;
+      }
+
       // 5. Determine expected nonce & guard against stale nonce
       const onChainNonce = await blockchain.getNonces(tId);
       const pendingCount = queue.getTokenNoncesInQueue(tId);
@@ -147,7 +158,7 @@ export function createVoteRouter(
       let ballotNonce: bigint;
       if (nonce !== undefined && nonce !== null) {
         ballotNonce = BigInt(nonce);
-        if (ballotNonce !== effectiveExpectedNonce && ballotNonce !== onChainNonce) {
+        if (ballotNonce !== effectiveExpectedNonce) {
           selfCorrectingError(res, 400, {
             error: `Stale or invalid nonce. Provided: ${nonce}, expected: ${effectiveExpectedNonce.toString()}.`,
             code: SecurityErrorCodes.STALE_NONCE,
@@ -217,8 +228,8 @@ export function createVoteRouter(
         return;
       }
 
-      // Register verified participant in Mesh node registry immediately
-      void blockchain.registerDiscoveredAgent?.(tId, tokenOwner, { votedProposalId: pId }).catch(() => {});
+      // Register verified participant in Mesh node registry immediately (votesCount increments upon on-chain settlement)
+      void blockchain.registerDiscoveredAgent?.(tId, tokenOwner).catch(() => {});
 
       // Notify daemon of incoming vote
       relayerDaemon.onVoteEnqueued();

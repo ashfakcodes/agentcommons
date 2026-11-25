@@ -20,6 +20,7 @@ export interface Proposal {
   status: ProposalStatus;
   createdAt: number;
   votedByCaller?: SupportType;
+  isLegacy?: boolean;
 }
 
 export interface AgentNode {

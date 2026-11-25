@@ -14,14 +14,19 @@ export function createProposalsRouter(
 
   /**
    * GET /api/v1/proposals
-   * Returns all proposals with tallies and status.
+   * Returns all proposals on the active Parliament contract with tallies and live block-height status,
+   * plus optional concluded legacy proposals for frontend archiving.
    */
   router.get("/", async (_req: Request, res: Response) => {
     try {
-      const proposals = await blockchain.getAllProposals();
+      const [proposals, legacyProposals] = await Promise.all([
+        blockchain.getAllProposals(),
+        blockchain.getLegacyProposals ? blockchain.getLegacyProposals() : Promise.resolve([]),
+      ]);
       res.json({
         total: proposals.length,
         proposals,
+        legacyProposals,
       });
     } catch (err: any) {
       res.status(500).json({

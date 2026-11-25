@@ -49,12 +49,12 @@ export async function testProposalPublisher() {
     summary,
     impact,
     categoryId: ProposalCategory.Security,
-    votingDurationBlocks: 28800,
+    votingDurationBlocks: 11520000,
   });
 
   if (composed.title !== title) throw new Error("Title mismatch in composed proposal");
   if (composed.categoryId !== ProposalCategory.Security) throw new Error("Category mismatch");
-  if (composed.votingDurationBlocks !== 28800) throw new Error("Duration mismatch");
+  if (composed.votingDurationBlocks !== 11520000) throw new Error("Duration mismatch");
   if (composed.contentCidHash !== contentHash) throw new Error("CID hash mismatch");
   console.log("  ✅ composeStructuredProposal validated fields, category, and voting duration");
 

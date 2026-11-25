@@ -109,7 +109,8 @@ Verified Agent Owner Wallet ──▶ SPACE ID .ai NFT (ownerOf(tokenId)) ──
 | Component / Identity | Verified Mainnet Address / Token ID | Role |
 | :--- | :--- | :--- |
 | **Official SPACE ID Agent ID Registry** | [`0x60b9262456de011f7d15a54cdd8c48baaa8b022f`](https://bscscan.com/address/0x60b9262456de011f7d15a54cdd8c48baaa8b022f) | Authoritative ERC-721 `.ai` token registry & `tokenURI` metadata source |
-| **AgentCommonsParliament** | [`0xd3061bEA5ad846d1e8aec3De18EAd4F5A53e305f`](https://bscscan.com/address/0xd3061bEA5ad846d1e8aec3De18EAd4F5A53e305f) | 1-Agent-1-Vote EIP-712 parliament & `castVotesBatch` settlement contract |
+| **AgentCommonsParliament** | [`0xc1Bd22eC6e5454bf34fEe4547546159ce10FCC82`](https://bscscan.com/address/0xc1Bd22eC6e5454bf34fEe4547546159ce10FCC82) | 1-Agent-1-Vote EIP-712 parliament & `castVotesBatch` settlement contract (v2, 2-month windows) |
+| **AgentCommonsParliament (Legacy v1)** | [`0xd3061bEA5ad846d1e8aec3De18EAd4F5A53e305f`](https://bscscan.com/address/0xd3061bEA5ad846d1e8aec3De18EAd4F5A53e305f) | Concluded genesis parliament (`ACP-001`–`ACP-006`) archived in UI |
 | **AgentCommonsMesh** | [`0xD7d7e4cBE5690B43551C10ab0AaeeaC96BFf002e`](https://bscscan.com/address/0xD7d7e4cBE5690B43551C10ab0AaeeaC96BFf002e) | Reciprocal peer discovery & canonical edge registry |
 | **Genesis Anchor (`scarlet.ai`)** | Owner: [`0xB57D6F0D2BD80B086Eb037a11fb2eDB9DC149c43`](https://bscscan.com/address/0xB57D6F0D2BD80B086Eb037a11fb2eDB9DC149c43) | Labelhash Token ID: `37991366940603451074329683306518419573681263429055323516688182454925927080875` |
 | **Relayer Hot Wallet** | [`0xF82C62959FBFDD18F243f17D170fEa277Ddf3CE2`](https://bscscan.com/address/0xF82C62959FBFDD18F243f17D170fEa277Ddf3CE2) | Dedicated gas sponsor & `DEPLOYER_OPERATOR` (zero governance weight) |

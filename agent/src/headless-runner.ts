@@ -496,7 +496,7 @@ export class HeadlessAgentRunner {
     nonce?: bigint | number | string;
   }): Promise<HeadlessProposalPublishResult> {
     const categoryId = params.categoryId ?? 1;
-    const votingDurationBlocks = params.votingDurationBlocks ?? 28800; // ~24h on BSC
+    const votingDurationBlocks = params.votingDurationBlocks ?? 11520000; // ~2 months @ 0.45s on BSC
     const deadlineVal =
       params.deadline !== undefined
         ? BigInt(params.deadline)
@@ -656,7 +656,7 @@ export class HeadlessAgentRunner {
         options?.newProposalDescription ||
         "Protocol-level specification establishing deterministic escrow pauses upon automated security anomaly detection.",
       categoryId: 4, // Security
-      votingDurationBlocks: 28800,
+      votingDurationBlocks: 11520000,
     });
 
     return {

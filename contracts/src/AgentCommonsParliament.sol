@@ -85,10 +85,13 @@ contract AgentCommonsParliament is EIP712, ReentrancyGuard, Ownable {
         emit GenesisAnchorEstablished(_genesisTokenId, GENESIS_AGENT_NAME, genesisOwner);
     }
 
+    uint256 public constant MIN_VOTING_DURATION_BLOCKS = 1200;
+    uint256 public constant MAX_VOTING_DURATION_BLOCKS = 15552000; // ~81 days @ 0.45s BSC blocks
+
     /**
      * @notice Create a new governance proposal
      * @param _contentCidHash IPFS SHA-256 or keccak256 hash of proposal markdown text & metadata
-     * @param _votingDurationBlocks Duration in blocks (1,200 to 201,600 on BSC: ~1 hour to 7 days)
+     * @param _votingDurationBlocks Duration in blocks (1,200 to 15,552,000 on BSC: ~15 min to ~2.5 months)
      * @param _categoryId Categorization tag (e.g., 0=General, 1=Resource Allocation, 2=Security, 3=Ecosystem)
      */
     function createProposal(
@@ -106,7 +109,11 @@ contract AgentCommonsParliament is EIP712, ReentrancyGuard, Ownable {
             } catch {}
         }
         require(_contentCidHash != bytes32(0), "Content CID hash cannot be zero");
-        require(_votingDurationBlocks >= 1200 && _votingDurationBlocks <= 201600, "Duration: 1 hr - 7 days");
+        require(
+            _votingDurationBlocks >= MIN_VOTING_DURATION_BLOCKS &&
+                _votingDurationBlocks <= MAX_VOTING_DURATION_BLOCKS,
+            "Duration: 1,200 - 15,552,000 blocks"
+        );
 
         proposalId = ++proposalCount;
         uint32 start = uint32(block.number);
@@ -137,7 +144,7 @@ contract AgentCommonsParliament is EIP712, ReentrancyGuard, Ownable {
      * @param creator Proposer's address (must own tokenId)
      * @param tokenId Proposer's Agent ID token
      * @param contentCidHash IPFS SHA-256 or keccak256 hash of proposal markdown text & metadata
-     * @param votingDurationBlocks Duration in blocks (1,200 to 201,600 on BSC: ~1 hour to 7 days)
+     * @param votingDurationBlocks Duration in blocks (1,200 to 15,552,000 on BSC: ~15 min to ~2.5 months)
      * @param categoryId Categorization tag (e.g., 0=General, 1=Resource Allocation, 2=Security, 3=Ecosystem)
      * @param nonce Replay protection nonce for tokenId
      * @param deadline Unix timestamp after which signature is invalid
@@ -155,7 +162,11 @@ contract AgentCommonsParliament is EIP712, ReentrancyGuard, Ownable {
     ) external nonReentrant returns (uint256 proposalId) {
         if (block.timestamp > deadline) revert SignatureExpired(deadline, block.timestamp);
         require(contentCidHash != bytes32(0), "Content CID hash cannot be zero");
-        require(votingDurationBlocks >= 1200 && votingDurationBlocks <= 201600, "Duration: 1 hr - 7 days");
+        require(
+            votingDurationBlocks >= MIN_VOTING_DURATION_BLOCKS &&
+                votingDurationBlocks <= MAX_VOTING_DURATION_BLOCKS,
+            "Duration: 1,200 - 15,552,000 blocks"
+        );
         require(nonce == nonces[tokenId], "Invalid nonce");
 
         bytes32 structHash = keccak256(

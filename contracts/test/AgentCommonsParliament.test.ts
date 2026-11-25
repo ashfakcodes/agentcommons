@@ -52,14 +52,18 @@ describe("AgentCommonsParliament", function () {
       ).to.be.revertedWith("Must hold Agent ID to propose");
     });
 
-    it("Should enforce voting duration between 1,200 and 201,600 blocks", async function () {
+    it("Should enforce voting duration between 1,200 and 15,552,000 blocks", async function () {
       await expect(
         parliament.connect(owner).createProposal(CONTENT_HASH, 1199, 0)
-      ).to.be.revertedWith("Duration: 1 hr - 7 days");
+      ).to.be.revertedWith("Duration: 1,200 - 15,552,000 blocks");
 
       await expect(
-        parliament.connect(owner).createProposal(CONTENT_HASH, 201601, 0)
-      ).to.be.revertedWith("Duration: 1 hr - 7 days");
+        parliament.connect(owner).createProposal(CONTENT_HASH, 15552001, 0)
+      ).to.be.revertedWith("Duration: 1,200 - 15,552,000 blocks");
+
+      await expect(
+        parliament.connect(owner).createProposal(CONTENT_HASH, 11520000, 0)
+      ).to.emit(parliament, "ProposalCreated");
     });
 
     it("Should create proposal with anti-flash-loan snapshot block and emit ProposalCreated", async function () {
