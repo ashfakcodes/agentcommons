@@ -24,6 +24,8 @@ export class ForceDirectedMesh {
   ctx: CanvasRenderingContext2D | null = null;
   onSelectNode?: (node: AgentNode) => void;
   particleOffset: number = 0;
+  private boundMouseMove?: (e: MouseEvent) => void;
+  private boundMouseUp?: () => void;
 
   constructor(
     agents: AgentNode[],
@@ -74,6 +76,14 @@ export class ForceDirectedMesh {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
     }
+    if (this.boundMouseMove) {
+      window.removeEventListener('mousemove', this.boundMouseMove);
+      this.boundMouseMove = undefined;
+    }
+    if (this.boundMouseUp) {
+      window.removeEventListener('mouseup', this.boundMouseUp);
+      this.boundMouseUp = undefined;
+    }
   }
 
   resize() {
@@ -89,9 +99,9 @@ export class ForceDirectedMesh {
   }
 
   updatePhysics() {
-    const repulsion = 1400;
-    const centerGravity = 0.02;
-    const springLength = 110;
+    const repulsion = 5500;
+    const centerGravity = 0.005;
+    const springLength = 120;
     const springK = 0.04;
     const damping = 0.88;
 
@@ -127,8 +137,8 @@ export class ForceDirectedMesh {
 
     // Spring tension for edges
     for (const edge of this.edges) {
-      const nodeA = this.nodes.find((n) => n.tokenId === edge.fromTokenId);
-      const nodeB = this.nodes.find((n) => n.tokenId === edge.toTokenId);
+      const nodeA = this.nodes.find((n) => String(n.tokenId) === String(edge.fromTokenId));
+      const nodeB = this.nodes.find((n) => String(n.tokenId) === String(edge.toTokenId));
       if (!nodeA || !nodeB) continue;
 
       const dx = nodeB.x - nodeA.x;
@@ -181,8 +191,8 @@ export class ForceDirectedMesh {
 
     // 1. Draw Edges
     for (const edge of this.edges) {
-      const nodeA = this.nodes.find((n) => n.tokenId === edge.fromTokenId);
-      const nodeB = this.nodes.find((n) => n.tokenId === edge.toTokenId);
+      const nodeA = this.nodes.find((n) => String(n.tokenId) === String(edge.fromTokenId));
+      const nodeB = this.nodes.find((n) => String(n.tokenId) === String(edge.toTokenId));
       if (!nodeA || !nodeB) continue;
 
       const isConnectedToHovered =
@@ -208,7 +218,10 @@ export class ForceDirectedMesh {
         ctx.stroke();
 
         // Animated Energy Particle along mutual handshake
-        const hashSeed = Number(BigInt(edge.fromTokenId || 0) % 1000n);
+        let hashSeed = 0;
+        try {
+          hashSeed = Number(BigInt(edge.fromTokenId || 0) % 1000n);
+        } catch {}
         const pT = (this.particleOffset + (hashSeed * 0.13)) % 1;
         const px = nodeA.x + (nodeB.x - nodeA.x) * pT;
         const py = nodeA.y + (nodeB.y - nodeA.y) * pT;
@@ -301,10 +314,12 @@ export class ForceDirectedMesh {
         : '#94a3b8';
       ctx.fillText(node.name, 0, (node.isGenesis ? 28 : node.radius + 6));
 
-      // Token ID sub-label
+      // Token ID sub-label (shorten long 256-bit SPACE IDs cleanly for canvas legibility)
+      const tidStr = String(node.tokenId);
+      const shortTid = tidStr.length > 14 ? `${tidStr.slice(0, 6)}...${tidStr.slice(-4)}` : tidStr;
       ctx.font = '8px "JetBrains Mono"';
       ctx.fillStyle = '#64748b';
-      ctx.fillText(`#${node.tokenId}`, 0, (node.isGenesis ? 42 : node.radius + 19));
+      ctx.fillText(`#${shortTid}`, 0, (node.isGenesis ? 42 : node.radius + 19));
 
       ctx.restore();
     }
@@ -366,7 +381,7 @@ export class ForceDirectedMesh {
       }
     });
 
-    window.addEventListener('mousemove', (e) => {
+    this.boundMouseMove = (e: MouseEvent) => {
       if (!this.canvas) return;
       const rect = this.canvas.getBoundingClientRect();
       const sx = e.clientX - rect.left;
@@ -390,12 +405,15 @@ export class ForceDirectedMesh {
         this.hoveredNodeId = hit ? hit.id : null;
         canvas.style.cursor = hit ? 'pointer' : 'grab';
       }
-    });
+    };
 
-    window.addEventListener('mouseup', () => {
+    this.boundMouseUp = () => {
       isMouseDown = false;
       this.draggedNode = null;
-    });
+    };
+
+    window.addEventListener('mousemove', this.boundMouseMove);
+    window.addEventListener('mouseup', this.boundMouseUp);
 
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();

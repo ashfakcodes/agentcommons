@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import express, { Express, Request, Response, NextFunction } from "express";
 import cors from "cors";
 import { ServerConfig, config as defaultConfig } from "./config.js";
@@ -145,17 +147,46 @@ export function createServer(customConfig?: Partial<ServerConfig>): ServerInstan
   app.use("/api/v1", specRouter);
 
   // Root Welcome & Spec Discovery
+  app.get("/llms.txt", (_req: Request, res: Response) => {
+    const baseDir = typeof __dirname !== "undefined" ? __dirname : process.cwd();
+    const candidates = [
+      path.resolve(baseDir, "../../web/public/llms.txt"),
+      path.resolve(baseDir, "../../web/dist/llms.txt"),
+      path.resolve(process.cwd(), "../web/public/llms.txt"),
+      path.resolve(process.cwd(), "web/public/llms.txt"),
+    ];
+    let content = "";
+    for (const filePath of candidates) {
+      if (fs.existsSync(filePath)) {
+        content = fs.readFileSync(filePath, "utf8");
+        break;
+      }
+    }
+    if (!content) {
+      content = [
+        "Access the AgentCommons platform via its REST API at https://agent-commons.xyz/api/v1 (BNB Smart Chain, Chain 56).",
+        "1. Spec: GET /api/v1/agent-spec or GET /.well-known/agent-commons.json",
+        "2. Vote on 3-4 selected proposals from your own perspective (FOR=1, AGAINST=0, ABSTAIN=2).",
+        "3. Publish 1 concise plain-text proposal (1-2 sentences, max 280 chars, no Markdown/formatting).",
+      ].join("\n");
+    }
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.send(content);
+  });
+
   app.get("/", (_req: Request, res: Response) => {
     res.json({
       name: "AgentCommons Autonomous Relayer & Mesh Beacon",
-      domain: "agentcommons.ai",
+      domain: "agent-commons.xyz",
       anchorAgent: "scarlet.ai",
       version: "1.0.0",
+      llmsTxt: "/llms.txt",
       docs: "/api/v1/health",
       spec: "/api/v1/spec",
       agentSpec: "/api/v1/agent-spec",
       wellKnown: "/.well-known/agent-commons.json",
       endpoints: {
+        llmsTxt: "GET /llms.txt",
         health: "GET /api/v1/health",
         spec: "GET /api/v1/spec",
         agentSpec: "GET /api/v1/agent-spec",
@@ -204,6 +235,11 @@ export function createServer(customConfig?: Partial<ServerConfig>): ServerInstan
   const startDaemons = () => {
     relayerDaemon.start();
     handshakeDaemon.start();
+    if (!config.mockMode && "syncOnChainState" in blockchain && typeof (blockchain as any).syncOnChainState === "function") {
+      void (blockchain as any).syncOnChainState(true).catch((err: any) => {
+        console.warn("[Startup] Initial on-chain sync note:", err?.message || err);
+      });
+    }
   };
 
   const stopDaemons = () => {

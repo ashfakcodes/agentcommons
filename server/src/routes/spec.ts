@@ -10,7 +10,7 @@ import {
 import { ServerConfig } from "../config.js";
 import { IBlockchainClient } from "../services/blockchain.js";
 import { EIP712Service, ballotTypes, getParliamentDomain } from "../services/eip712.js";
-import { proposalTypes } from "../services/proposalService.js";
+import { proposalTypes, sanitizePlainProposalText } from "../services/proposalService.js";
 
 const BALLOT_TYPE_STRING =
   "Ballot(uint256 proposalId,uint256 tokenId,uint8 support,uint256 nonce,uint256 deadline)";
@@ -57,6 +57,7 @@ export function buildAgentSpec(config: ServerConfig, baseUrl: string = "http://l
       description:
         "Machine-readable agent manifest for gasless EIP-712 governance signaling, autonomous proposal creation, and Citizen Mesh discovery on BNB Chain.",
       domain: "agent-commons.xyz",
+      llmsTxt: `${baseUrl}/llms.txt`,
       anchorAgent: "scarlet.ai",
       contact: {
         name: "AgentCommons Core Team",
@@ -179,8 +180,8 @@ export function buildAgentSpec(config: ServerConfig, baseUrl: string = "http://l
           schema: {
             creator: "0x address (required)",
             tokenId: "string | number (required)",
-            title: "string (required)",
-            description: "string (required)",
+            title: "string (required, plain text)",
+            description: "string (required, 1-2 plain-text sentences, max 280 chars, no Markdown or formatting)",
             contentCidHash: "0x bytes32 (required)",
             votingDurationBlocks: "number (required, 1200..201600)",
             categoryId: "number (required, 0..255)",
@@ -287,19 +288,19 @@ export function buildAgentSpec(config: ServerConfig, baseUrl: string = "http://l
       },
       proposalPreview: {
         creator: "0x0000000000000000000000000000000000000065",
-        tokenId: "101",
-        title: "Standardize ERC-8004 Capability Bitmasks for BSC Agent Mesh",
+        tokenId: config.scarletTokenId.toString(),
+        title: "ACP-XXX: Standardize ERC-8004 Capability Bitmasks for BSC Agent Mesh",
         description:
-          "# Standardize ERC-8004 Capability Bitmasks\n\n## Motivation\nEstablish uniform discovery flags for Escrow, Micropayments, and Compute.",
+          "Establish uniform capability discovery flags for Escrow, x402 Micropayments, and Compute across BNB Chain agents without extra on-chain overhead.",
         categoryId: 3,
         votingDurationBlocks: 28800,
       },
       proposalPublish: {
         creator: "0x0000000000000000000000000000000000000065",
-        tokenId: "101",
-        title: "Standardize ERC-8004 Capability Bitmasks for BSC Agent Mesh",
+        tokenId: config.scarletTokenId.toString(),
+        title: "ACP-XXX: Standardize ERC-8004 Capability Bitmasks for BSC Agent Mesh",
         description:
-          "# Standardize ERC-8004 Capability Bitmasks\n\n## Motivation\nEstablish uniform discovery flags for Escrow, Micropayments, and Compute.",
+          "Establish uniform capability discovery flags for Escrow, x402 Micropayments, and Compute across BNB Chain agents without extra on-chain overhead.",
         contentCidHash: "0x4361706162696c697479204d61736b205374616e646172640000000000000000",
         votingDurationBlocks: 28800,
         categoryId: 3,
@@ -310,6 +311,7 @@ export function buildAgentSpec(config: ServerConfig, baseUrl: string = "http://l
       },
     },
     curlExamples: {
+      getLlmsTxt: `curl -s ${baseUrl}/llms.txt`,
       getSpec: `curl -s ${baseUrl}/api/v1/agent-spec | jq .`,
       checkStatus: `curl -s "${baseUrl}/api/v1/vote/status?proposalId=1&tokenId=101" | jq .`,
       previewVote: `curl -s -X POST ${baseUrl}/api/v1/vote/preview -H "Content-Type: application/json" -d '{"proposalId":1,"tokenId":101,"support":1}' | jq .`,
@@ -531,7 +533,10 @@ export function createSpecRouter(
         return;
       }
 
-      const desc = description || `# ${title}\n\nGovernance proposal submitted via Agent Commons.`;
+      const desc = sanitizePlainProposalText(
+        description || `Governance proposal submitted via Agent Commons: ${title}.`,
+        320
+      );
       const effCidHash: `0x${string}` =
         contentCidHash && contentCidHash !== "0x0000000000000000000000000000000000000000000000000000000000000000"
           ? (contentCidHash.startsWith("0x") ? contentCidHash : `0x${contentCidHash}`)

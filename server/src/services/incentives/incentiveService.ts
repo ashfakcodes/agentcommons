@@ -73,6 +73,7 @@ export class IncentiveService {
         agentConnected: true,
         activeProposalsTotal: 0,
         activeProposalsVoted: 0,
+        requiredVotesTarget: 0,
         allActiveProposalsVoted: true,
         hasAuthoredProposal: true,
         isEligible: false,
@@ -106,8 +107,9 @@ export class IncentiveService {
       }
     }
 
+    const requiredVotesTarget = activeProposals.length > 0 ? Math.min(3, activeProposals.length) : 0;
     const allActiveProposalsVoted =
-      activeProposals.length > 0 && activeProposalsVoted === activeProposals.length;
+      activeProposals.length > 0 && activeProposalsVoted >= requiredVotesTarget;
 
     // 3. Verify authored an independent proposal
     const hasAuthoredProposal = allProposals.some(
@@ -125,6 +127,7 @@ export class IncentiveService {
       agentConnected,
       activeProposalsTotal: activeProposals.length,
       activeProposalsVoted,
+      requiredVotesTarget,
       allActiveProposalsVoted,
       hasAuthoredProposal,
       isEligible,
@@ -160,7 +163,7 @@ export class IncentiveService {
         return { success: false, message: "Agent Token ID has already been rewarded." };
       }
       if (this.ledger.size >= this.config.maxUsers) {
-        return { success: false, message: "Incentive quota reached (first 40 users fulfilled)." };
+        return { success: false, message: `Incentive quota reached (first ${this.config.maxUsers} users fulfilled).` };
       }
 
       // Re-evaluate live criteria
@@ -169,9 +172,10 @@ export class IncentiveService {
         return { success: false, message: "Agent ID must be owned by the claiming address." };
       }
       if (!criteria.allActiveProposalsVoted) {
+        const target = criteria.requiredVotesTarget ?? criteria.activeProposalsTotal;
         return {
           success: false,
-          message: `Must vote on all active proposals (${criteria.activeProposalsVoted}/${criteria.activeProposalsTotal} completed).`,
+          message: `Must vote on at least ${target} active proposals (${criteria.activeProposalsVoted}/${target} completed).`,
         };
       }
       if (!criteria.hasAuthoredProposal) {
@@ -239,6 +243,7 @@ export class IncentiveService {
       agentConnected: false,
       activeProposalsTotal: 0,
       activeProposalsVoted: 0,
+      requiredVotesTarget: 0,
       allActiveProposalsVoted: false,
       hasAuthoredProposal: false,
       isEligible: false,

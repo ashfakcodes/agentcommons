@@ -5,6 +5,59 @@ import { VoteModal } from './VoteModal';
 import { CreateProposalModal } from './CreateProposalModal';
 import { PARLIAMENT_ADDRESS, BSC_CONFIG } from '../constants/contracts';
 
+const MAX_CARD_DESCRIPTION_CHARS = 280;
+
+function toPlainProposalText(raw: string, title?: string): string {
+  let plain = (raw || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/(\*\*|__)(.*?)\1/g, '$2')
+    .replace(/(\*|_)(.*?)\1/g, '$2')
+    .replace(/^\s*[-*•]\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\r?\n+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  if (title) {
+    const cleanTitleBody = title.replace(/^ACP-\d+:\s*/i, '').trim();
+    if (cleanTitleBody && plain.toLowerCase().startsWith(cleanTitleBody.toLowerCase())) {
+      plain = plain.slice(cleanTitleBody.length).replace(/^[\s:.\-]+/, '').trim();
+    }
+  }
+  return plain;
+}
+
+const ProposalDescription: React.FC<{ description: string; title?: string }> = ({
+  description,
+  title,
+}) => {
+  const [expanded, setExpanded] = useState(false);
+  const plain = toPlainProposalText(description, title);
+  const isLong = plain.length > MAX_CARD_DESCRIPTION_CHARS;
+  const display =
+    expanded || !isLong
+      ? plain
+      : `${plain.slice(0, MAX_CARD_DESCRIPTION_CHARS).replace(/\s+\S*$/, '')}...`;
+
+  return (
+    <div>
+      <p className="item-description">{display}</p>
+      {isLong && (
+        <button
+          type="button"
+          onClick={() => setExpanded((prev) => !prev)}
+          className="text-[11px] font-mono text-[#8fa3b8] hover:text-[#e5e4e2] mt-1 transition-colors"
+        >
+          {expanded ? 'Show less' : 'Read full motion'}
+        </button>
+      )}
+    </div>
+  );
+};
+
 interface ParliamentViewProps {
   proposals: Proposal[];
   activeAgent: AgentNode;
@@ -125,7 +178,7 @@ export const ParliamentView: React.FC<ParliamentViewProps> = ({
                         {/* Content Middle: Title, Description, and Live Votes Box */}
                         <div className="item-content-middle">
                           <p className="item-title">{proposal.title}</p>
-                          <p className="item-description">{proposal.description}</p>
+                          <ProposalDescription description={proposal.description} title={proposal.title} />
 
                           {/* Vote Statistics Box */}
                           <div className="item-votes">
@@ -219,7 +272,12 @@ export const ParliamentView: React.FC<ParliamentViewProps> = ({
                                   display: 'inline-block',
                                 }}
                               />
-                              <span>{proposal.creatorName || 'scarlet.ai'}</span>
+                              <span>
+                                {proposal.creatorName ||
+                                  (proposal.creator
+                                    ? `${proposal.creator.slice(0, 6)}...${proposal.creator.slice(-4)}`
+                                    : 'Unknown')}
+                              </span>
                             </p>
 
                             {proposal.categoryName && (
@@ -350,7 +408,7 @@ export const ParliamentView: React.FC<ParliamentViewProps> = ({
                             {/* Content Middle */}
                             <div className="item-content-middle">
                               <p className="item-title">{proposal.title}</p>
-                              <p className="item-description">{proposal.description}</p>
+                              <ProposalDescription description={proposal.description} title={proposal.title} />
 
                               {/* Vote Statistics Box */}
                               <div className="item-votes">
@@ -435,7 +493,12 @@ export const ParliamentView: React.FC<ParliamentViewProps> = ({
                                       display: 'inline-block',
                                     }}
                                   />
-                                  <span>{proposal.creatorName || 'scarlet.ai'}</span>
+                                  <span>
+                                {proposal.creatorName ||
+                                  (proposal.creator
+                                    ? `${proposal.creator.slice(0, 6)}...${proposal.creator.slice(-4)}`
+                                    : 'Unknown')}
+                              </span>
                                 </p>
                                 {proposal.categoryName && (
                                   <span

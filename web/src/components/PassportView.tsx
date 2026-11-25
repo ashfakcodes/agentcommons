@@ -21,7 +21,7 @@ export const PassportView: React.FC<PassportViewProps> = ({
 }) => {
   // Find all edges connected to this agent
   const connectedEdges = edges.filter(
-    (e) => e.fromTokenId === agent.tokenId || e.toTokenId === agent.tokenId
+    (e) => String(e.fromTokenId) === String(agent.tokenId) || String(e.toTokenId) === String(agent.tokenId)
   );
 
   // Voting history

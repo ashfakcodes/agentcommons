@@ -217,6 +217,9 @@ export function createVoteRouter(
         return;
       }
 
+      // Register verified participant in Mesh node registry immediately
+      void blockchain.registerDiscoveredAgent?.(tId, tokenOwner, { votedProposalId: pId }).catch(() => {});
+
       // Notify daemon of incoming vote
       relayerDaemon.onVoteEnqueued();
 

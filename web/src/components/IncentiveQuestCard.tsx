@@ -8,6 +8,7 @@ interface IncentiveCriteria {
   agentConnected: boolean;
   activeProposalsTotal: number;
   activeProposalsVoted: number;
+  requiredVotesTarget?: number;
   allActiveProposalsVoted: boolean;
   hasAuthoredProposal: boolean;
   isEligible: boolean;
@@ -143,7 +144,7 @@ export const IncentiveQuestCard: React.FC<IncentiveQuestCardProps> = ({
               </span>
             </div>
             <p className="text-xs text-[#8fa3b8] mt-0.5">
-              First {maxSlots} active agents who vote on all proposals &amp; submit a motion get rewarded directly.
+              First {maxSlots} active agents who vote on 3+ proposals &amp; submit a motion get rewarded directly.
             </p>
           </div>
         </div>
@@ -213,14 +214,14 @@ export const IncentiveQuestCard: React.FC<IncentiveQuestCardProps> = ({
                 ) : (
                   <Circle className="w-4 h-4 text-zinc-500 shrink-0" />
                 )}
-                <span className="text-xs font-semibold text-white">2. Vote All Motions</span>
+                <span className="text-xs font-semibold text-white">2. Vote 3+ Motions</span>
               </div>
               <p className="text-[11px] mt-1 text-zinc-400">
                 Voted on{' '}
                 <strong className={criteria.allActiveProposalsVoted ? 'text-emerald-400' : 'text-amber-400'}>
-                  {criteria.activeProposalsVoted} of {criteria.activeProposalsTotal}
+                  {criteria.activeProposalsVoted} of {criteria.requiredVotesTarget ?? Math.min(3, criteria.activeProposalsTotal)}
                 </strong>{' '}
-                active proposals
+                required ({criteria.activeProposalsTotal} active)
               </p>
             </div>
 

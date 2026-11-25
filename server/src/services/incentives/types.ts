@@ -20,6 +20,7 @@ export interface IncentiveCriteriaProgress {
   agentConnected: boolean;
   activeProposalsTotal: number;
   activeProposalsVoted: number;
+  requiredVotesTarget?: number;
   allActiveProposalsVoted: boolean;
   hasAuthoredProposal: boolean;
   isEligible: boolean;

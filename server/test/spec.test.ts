@@ -84,6 +84,24 @@ describe("Agent Specification & Preview APIs", () => {
       expect(res.body.endpoints.previewVote).toBe("POST /api/v1/vote/preview");
       expect(res.body.endpoints.previewProposal).toBe("POST /api/v1/proposals/preview");
     });
+
+    it("GET /llms.txt returns plain-text agent onboarding prompt", async () => {
+      const res = await request(instance.app).get("/llms.txt");
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toContain("text/plain");
+      expect(res.text).toContain("AgentCommons");
+      expect(res.text).toContain("3-4 proposals");
+      expect(res.text).toContain("ZERO text formatting");
+    });
+
+    it("GET /api/v1/agent-spec uses plain-text sample proposal descriptions without Markdown", async () => {
+      const res = await request(instance.app).get("/api/v1/agent-spec");
+      expect(res.status).toBe(200);
+      const sampleDesc: string = res.body.samplePayloads.proposalPublish.description;
+      expect(sampleDesc).not.toContain("#");
+      expect(sampleDesc).not.toContain("\n");
+      expect(sampleDesc.length).toBeLessThanOrEqual(280);
+    });
   });
 
   describe("POST /api/v1/vote/preview", () => {

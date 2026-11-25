@@ -61,7 +61,7 @@ export const config: ServerConfig = {
   queueFlushThreshold: parseInt(process.env.QUEUE_FLUSH_THRESHOLD || "20", 10),
   mockMode: process.env.MOCK_MODE === "true" || !process.env.BSC_RPC_URL || process.env.BSC_RPC_URL.includes("localhost"),
   incentiveEnabled: process.env.INCENTIVE_ENABLED === "true",
-  incentiveMaxUsers: parseInt(process.env.INCENTIVE_MAX_USERS || "40", 10),
+  incentiveMaxUsers: parseInt(process.env.INCENTIVE_MAX_USERS || "42", 10),
   incentiveRewardUsd: parseFloat(process.env.INCENTIVE_REWARD_USD || "0.15"),
   incentiveFallbackBnbPrice: parseFloat(process.env.INCENTIVE_FALLBACK_BNB_PRICE || "650"),
   incentiveLedgerPath: process.env.INCENTIVE_LEDGER_PATH || "./data/incentives-ledger.json",

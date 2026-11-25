@@ -83,6 +83,8 @@ export interface ProposalView {
   title?: string;
   description?: string;
   creator: string;
+  creatorTokenId?: string;
+  creatorName?: string;
   categoryId: number;
   contentCidHash: string;
   startBlock: number;
@@ -103,6 +105,10 @@ export interface MeshNode {
   owner: string;
   totalConnections: number;
   capabilities: number;
+  isGenesis?: boolean;
+  votesCount?: number;
+  proposalsCount?: number;
+  lastActivityAt?: number;
 }
 
 export interface MeshEdge {

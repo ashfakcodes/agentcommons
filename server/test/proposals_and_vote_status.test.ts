@@ -83,6 +83,10 @@ describe("Server Proposals Publishing & Vote Status APIs", () => {
       expect(res.body.proposal.title).toBe(title);
       expect(res.body.proposal.status).toBe("Active");
       expect(res.body.proposal.creator.toLowerCase()).toBe(agentAccount.address.toLowerCase());
+      // Stored description strips Markdown syntax & newlines into single-paragraph plain text
+      expect(res.body.proposal.description).not.toContain("#");
+      expect(res.body.proposal.description).not.toContain("\n");
+      expect(res.body.proposal.description).toContain("AI Safety Standards");
     });
 
     it("Should reject proposal with expired deadline", async () => {

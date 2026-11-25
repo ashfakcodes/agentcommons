@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import {
   createPublicClient,
   createWalletClient,
@@ -9,6 +11,7 @@ import {
   formatEther,
   parseAbiItem,
   decodeEventLog,
+  decodeFunctionData,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { bsc, bscTestnet } from "viem/chains";
@@ -71,6 +74,18 @@ export interface IBlockchainClient {
   subscribeToMeshPings(
     callback: (fromTokenId: bigint, toTokenId: bigint, timestamp: number) => void
   ): () => void;
+  registerDiscoveredAgent?(
+    tokenId: bigint,
+    owner?: `0x${string}`,
+    activity?: {
+      votedProposalId?: bigint;
+      createdProposalId?: bigint;
+      title?: string;
+      description?: string;
+      capabilities?: number;
+    }
+  ): Promise<void>;
+  resolveAgentName?(tokenId: bigint): Promise<string | null>;
   // Simulation helpers for mock mode:
   simulateInboundPing?(fromTokenId: bigint, toTokenId: bigint): void;
   setMockTokenOwner?(tokenId: bigint, owner: `0x${string}`, name?: string): void;
@@ -81,6 +96,82 @@ export interface IBlockchainClient {
   ): Promise<bigint>;
 }
 
+const DEFAULT_LOG_FALLBACK_RPCS = [
+  "https://bsc.publicnode.com",
+  "https://bsc-dataseed1.defibit.io/",
+  "https://bsc-dataseed1.ninicoin.io/",
+];
+
+const SYNC_COOLDOWN_MS = 15_000;
+const PROPOSALS_CACHE_TTL_MS = 10_000;
+
+export function formatAiDomainName(raw: string): string {
+  const clean = raw.trim().replace(/^@/, "");
+  if (!clean) return "";
+  return clean.toLowerCase().endsWith(".ai") ? clean : `${clean}.ai`;
+}
+
+/**
+ * Resolves an ERC-721 tokenURI into a canonical `.ai` domain name.
+ * Supports SPACE ID metadata URLs (`.../metadata/<label>.json`), data URIs, and HTTP JSON endpoints.
+ */
+export async function resolveNameFromTokenUri(
+  uri: string,
+  fetcher: typeof fetch = fetch
+): Promise<string | null> {
+  const trimmed = (uri || "").trim();
+  if (!trimmed) return null;
+
+  // Handle inline base64 JSON metadata URIs
+  if (trimmed.startsWith("data:application/json;base64,")) {
+    try {
+      const b64 = trimmed.slice("data:application/json;base64,".length);
+      const parsed = JSON.parse(Buffer.from(b64, "base64").toString("utf8"));
+      if (typeof parsed?.name === "string" && parsed.name.trim()) {
+        return formatAiDomainName(parsed.name);
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  // Fast label extraction fallback for SPACE ID URI shape `.../metadata/<label>.json`
+  const slugMatch = trimmed.match(/\/metadata\/([^/?#]+?)(?:\.json)?(?:[?#].*)?$/i);
+  const slugFallback = slugMatch?.[1] ? formatAiDomainName(decodeURIComponent(slugMatch[1])) : null;
+
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2500);
+      try {
+        const res = await fetcher(trimmed, { signal: controller.signal });
+        if (res.ok) {
+          const json: any = await res.json();
+          if (typeof json?.name === "string" && json.name.trim()) {
+            return formatAiDomainName(json.name);
+          }
+        }
+      } finally {
+        clearTimeout(timeout);
+      }
+    } catch {
+      // Fall back to parsed URL slug when metadata CDN is unreachable
+    }
+  }
+
+  return slugFallback;
+}
+
+interface PersistedRelayerState {
+  lastSyncedBlock?: string;
+  proposalMetadata?: Record<string, { title: string; description: string }>;
+  ownerIndex?: Record<string, { tokenId: string; name: string }>;
+  seenVotes?: string[];
+  seenProposals?: Record<string, { creator: string; tokenId?: string }>;
+  nodes?: MeshNode[];
+  edges?: MeshEdge[];
+}
+
 // -----------------------------------------------------------------------------
 // Live BSC Blockchain Client
 // -----------------------------------------------------------------------------
@@ -89,16 +180,28 @@ export class LiveBlockchainClient implements IBlockchainClient {
   public readonly hotWallet: HotWalletManager;
   private publicClient: any;
   private walletClient: any;
+  private logClients: any[] = [];
+  private activeLogClientIndex = 0;
   private wsClient?: any;
   private account: any;
+  private stateFilePath: string;
   private proposalMetadataStore = new Map<string, { title: string; description: string }>();
   private knownNodes = new Map<string, MeshNode>();
   private knownEdges = new Map<string, MeshEdge>();
+  private tokenNames = new Map<string, string>();
+  private ownerToAgent = new Map<string, { tokenId: string; name: string }>();
+  private seenVotes = new Set<string>();
+  private seenProposals = new Map<string, { creator: string; tokenId?: string }>();
+  private lastSyncedBlock = 0n;
+  private lastSyncAt = 0;
+  private syncPromise: Promise<void> | null = null;
+  private proposalsCache: { data: ProposalView[]; fetchedAt: number } | null = null;
 
   constructor(private config: ServerConfig) {
     this.hotWallet = new HotWalletManager(config);
     this.account = privateKeyToAccount(config.scarletPrivateKey);
     const chain = config.chainId === 97 ? bscTestnet : bsc;
+    this.stateFilePath = path.resolve(path.dirname(config.incentiveLedgerPath || "./data/incentives-ledger.json"), "relayer-state.json");
 
     this.publicClient = createPublicClient({
       chain,
@@ -110,6 +213,19 @@ export class LiveBlockchainClient implements IBlockchainClient {
       chain,
       transport: http(config.bscRpcUrl),
     });
+
+    // Build ordered log-query RPC pool (primary RPC + fallback BSC archive/full nodes for eth_getLogs)
+    const rpcUrls = [config.bscRpcUrl];
+    if (config.chainId === 56) {
+      for (const fallback of DEFAULT_LOG_FALLBACK_RPCS) {
+        if (!rpcUrls.includes(fallback)) rpcUrls.push(fallback);
+      }
+    }
+    this.logClients = rpcUrls.map((url) =>
+      url === config.bscRpcUrl
+        ? this.publicClient
+        : createPublicClient({ chain, transport: http(url) })
+    );
 
     // Seed known proposals metadata (Mainnet Proposals #1 - #4)
     this.proposalMetadataStore.set("1", {
@@ -129,14 +245,30 @@ export class LiveBlockchainClient implements IBlockchainClient {
       description: "Mandate strict ERC-721 token ownership validation (ownerOf) for all voting and motion submissions, preventing Sybil attacks and ensuring genuine 1-to-1 agentic representation.",
     });
 
-    // Seed Genesis Beacon node (scarlet.ai) with verified SPACE ID owner
-    this.knownNodes.set(config.scarletTokenId.toString(), {
-      tokenId: config.scarletTokenId.toString(),
+    // Load previously persisted state (discovered agents, edges, proposal metadata)
+    this.loadPersistedState();
+
+    // Ensure Genesis Beacon node (scarlet.ai) is anchored; real owner resolved dynamically on sync
+    const genesisTid = config.scarletTokenId.toString();
+    const existingGenesis = this.knownNodes.get(genesisTid);
+    this.knownNodes.set(genesisTid, {
+      tokenId: genesisTid,
       name: "scarlet.ai",
-      owner: "0xB57D6F0D2BD80B086Eb037a11fb2eDB9DC149c43",
-      totalConnections: 0,
-      capabilities: 31,
+      owner: existingGenesis?.owner || "0x0000000000000000000000000000000000000000",
+      totalConnections: existingGenesis?.totalConnections ?? 0,
+      capabilities: existingGenesis?.capabilities ?? 31,
+      isGenesis: true,
+      votesCount: existingGenesis?.votesCount ?? 0,
+      proposalsCount: existingGenesis?.proposalsCount ?? 0,
+      lastActivityAt: existingGenesis?.lastActivityAt,
     });
+    this.tokenNames.set(genesisTid, "scarlet.ai");
+    if (existingGenesis?.owner && existingGenesis.owner !== "0x0000000000000000000000000000000000000000") {
+      this.ownerToAgent.set(existingGenesis.owner.toLowerCase(), {
+        tokenId: genesisTid,
+        name: "scarlet.ai",
+      });
+    }
 
     if (config.bscWssUrl && config.bscWssUrl.startsWith("ws")) {
       try {
@@ -148,6 +280,465 @@ export class LiveBlockchainClient implements IBlockchainClient {
         console.warn("[BlockchainClient] WebSocket connection failed; falling back to polling", e);
       }
     }
+  }
+
+  private loadPersistedState(): void {
+    try {
+      if (!fs.existsSync(this.stateFilePath)) return;
+      const raw = fs.readFileSync(this.stateFilePath, "utf8");
+      const parsed = JSON.parse(raw) as PersistedRelayerState;
+
+      if (parsed.lastSyncedBlock) {
+        this.lastSyncedBlock = BigInt(parsed.lastSyncedBlock);
+      }
+      if (parsed.proposalMetadata) {
+        for (const [k, v] of Object.entries(parsed.proposalMetadata)) {
+          if (v?.title && v?.description) {
+            this.proposalMetadataStore.set(k, v);
+          }
+        }
+      }
+      if (parsed.ownerIndex) {
+        for (const [addr, info] of Object.entries(parsed.ownerIndex)) {
+          if (info?.tokenId && info?.name) {
+            this.ownerToAgent.set(addr.toLowerCase(), info);
+          }
+        }
+      }
+      if (Array.isArray(parsed.seenVotes)) {
+        for (const vk of parsed.seenVotes) this.seenVotes.add(vk);
+      }
+      if (parsed.seenProposals) {
+        for (const [pid, meta] of Object.entries(parsed.seenProposals)) {
+          this.seenProposals.set(pid, meta);
+        }
+      }
+      if (Array.isArray(parsed.nodes)) {
+        for (const n of parsed.nodes) {
+          if (n?.tokenId) {
+            this.knownNodes.set(n.tokenId, n);
+            if (n.name && !n.name.startsWith("agent-")) {
+              this.tokenNames.set(n.tokenId, n.name);
+            }
+          }
+        }
+      }
+      if (Array.isArray(parsed.edges)) {
+        for (const e of parsed.edges) {
+          if (e?.edgeKey) this.knownEdges.set(e.edgeKey, e);
+        }
+      }
+    } catch (err) {
+      console.warn("[BlockchainClient] Could not load persisted state:", err);
+    }
+  }
+
+  private savePersistedState(): void {
+    try {
+      const dir = path.dirname(this.stateFilePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      const state: PersistedRelayerState = {
+        lastSyncedBlock: this.lastSyncedBlock.toString(),
+        proposalMetadata: Object.fromEntries(this.proposalMetadataStore.entries()),
+        ownerIndex: Object.fromEntries(this.ownerToAgent.entries()),
+        seenVotes: Array.from(this.seenVotes),
+        seenProposals: Object.fromEntries(this.seenProposals.entries()),
+        nodes: Array.from(this.knownNodes.values()),
+        edges: Array.from(this.knownEdges.values()),
+      };
+      fs.writeFileSync(this.stateFilePath, JSON.stringify(state, null, 2), "utf8");
+    } catch (err) {
+      console.warn("[BlockchainClient] Failed to persist state:", err);
+    }
+  }
+
+  public invalidateCache(): void {
+    this.proposalsCache = null;
+  }
+
+  public async resolveAgentName(tokenId: bigint): Promise<string | null> {
+    const tidStr = tokenId.toString();
+    if (tokenId === this.config.scarletTokenId) {
+      this.tokenNames.set(tidStr, "scarlet.ai");
+      return "scarlet.ai";
+    }
+
+    const cached = this.tokenNames.get(tidStr);
+    if (cached && !cached.startsWith("agent-")) {
+      return cached;
+    }
+
+    // 1. Official SPACE ID ERC-721 tokenURI(tokenId) -> metadata/<label>.json
+    try {
+      const uri = (await this.publicClient.readContract({
+        address: this.config.registrarAddress,
+        abi: AgentIdRegistrarAbi,
+        functionName: "tokenURI",
+        args: [tokenId],
+      })) as string;
+      const resolved = await resolveNameFromTokenUri(uri);
+      if (resolved) {
+        this.tokenNames.set(tidStr, resolved);
+        return resolved;
+      }
+    } catch {}
+
+    // 2. Fallback for legacy/mock registrar contracts exposing getAgentName(tokenId)
+    try {
+      const legacyName = (await this.publicClient.readContract({
+        address: this.config.registrarAddress,
+        abi: AgentIdRegistrarAbi,
+        functionName: "getAgentName",
+        args: [tokenId],
+      })) as string;
+      if (legacyName && legacyName.trim()) {
+        const formatted = formatAiDomainName(legacyName);
+        this.tokenNames.set(tidStr, formatted);
+        return formatted;
+      }
+    } catch {}
+
+    return null;
+  }
+
+  private async ensureDiscoveredNode(
+    tokenId: bigint,
+    knownOwner?: `0x${string}`,
+    capabilities: number = 7
+  ): Promise<MeshNode> {
+    const tidStr = tokenId.toString();
+    const isGenesis = tokenId === this.config.scarletTokenId;
+    let existing = this.knownNodes.get(tidStr);
+
+    let owner = knownOwner || existing?.owner;
+    if (!owner || owner === "0x0000000000000000000000000000000000000000") {
+      try {
+        owner = await this.getOwnerOf(tokenId);
+      } catch {
+        owner = "0x0000000000000000000000000000000000000000";
+      }
+    }
+
+    let name = isGenesis ? "scarlet.ai" : existing?.name;
+    if (!name || name.startsWith("agent-")) {
+      name = (await this.resolveAgentName(tokenId)) || `agent-${tidStr.slice(0, 6)}...`;
+    }
+
+    const node: MeshNode = {
+      tokenId: tidStr,
+      name,
+      owner,
+      totalConnections: existing?.totalConnections ?? 0,
+      capabilities: existing?.capabilities ?? (isGenesis ? 31 : capabilities),
+      isGenesis,
+      votesCount: existing?.votesCount ?? 0,
+      proposalsCount: existing?.proposalsCount ?? 0,
+      lastActivityAt: existing?.lastActivityAt ?? Math.floor(Date.now() / 1000),
+    };
+
+    this.knownNodes.set(tidStr, node);
+    if (owner && owner !== "0x0000000000000000000000000000000000000000") {
+      this.ownerToAgent.set(owner.toLowerCase(), { tokenId: tidStr, name });
+    }
+    return node;
+  }
+
+  public async registerDiscoveredAgent(
+    tokenId: bigint,
+    owner?: `0x${string}`,
+    activity?: {
+      votedProposalId?: bigint;
+      createdProposalId?: bigint;
+      title?: string;
+      description?: string;
+      capabilities?: number;
+    }
+  ): Promise<void> {
+    const node = await this.ensureDiscoveredNode(tokenId, owner, activity?.capabilities ?? 7);
+    const nowSec = Math.floor(Date.now() / 1000);
+    node.lastActivityAt = nowSec;
+
+    if (activity?.votedProposalId !== undefined) {
+      const vKey = `${activity.votedProposalId.toString()}:${tokenId.toString()}`;
+      if (!this.seenVotes.has(vKey)) {
+        this.seenVotes.add(vKey);
+        node.votesCount = (node.votesCount || 0) + 1;
+      }
+    }
+
+    if (activity?.createdProposalId !== undefined) {
+      const pKey = activity.createdProposalId.toString();
+      const prev = this.seenProposals.get(pKey);
+      if (!prev || !prev.tokenId) {
+        this.seenProposals.set(pKey, {
+          creator: node.owner,
+          tokenId: tokenId.toString(),
+        });
+        node.proposalsCount = (node.proposalsCount || 0) + 1;
+      }
+      if (activity.title && activity.description) {
+        this.proposalMetadataStore.set(pKey, {
+          title: activity.title,
+          description: activity.description,
+        });
+      }
+    }
+
+    this.invalidateCache();
+    this.savePersistedState();
+  }
+
+  private async getLogsWithFallback(params: {
+    address: `0x${string}`;
+    event: any;
+    fromBlock: bigint;
+    toBlock: bigint;
+  }): Promise<any[]> {
+    const totalClients = this.logClients.length;
+    let lastError: any;
+
+    for (let attempt = 0; attempt < totalClients; attempt++) {
+      const idx = (this.activeLogClientIndex + attempt) % totalClients;
+      const client = this.logClients[idx];
+      try {
+        const logs = await client.getLogs(params);
+        this.activeLogClientIndex = idx;
+        return logs;
+      } catch (err: any) {
+        lastError = err;
+      }
+    }
+
+    throw lastError;
+  }
+
+  private async getStartBlockForDiscovery(latestBlock: bigint): Promise<bigint> {
+    if (this.lastSyncedBlock > 0n) {
+      return this.lastSyncedBlock + 1n;
+    }
+    try {
+      const core1 = (await this.publicClient.readContract({
+        address: this.config.parliamentAddress,
+        abi: ParliamentAbi,
+        functionName: "proposals",
+        args: [1n],
+      })) as any;
+      const startBlk = Number(Array.isArray(core1) ? core1[0] : core1?.startBlock);
+      if (startBlk > 0) {
+        return BigInt(Math.max(0, startBlk - 300));
+      }
+    } catch {}
+
+    return latestBlock > 80_000n ? latestBlock - 80_000n : 0n;
+  }
+
+  public async syncOnChainState(force: boolean = false): Promise<void> {
+    if (this.syncPromise) {
+      return this.syncPromise;
+    }
+    if (!force && Date.now() - this.lastSyncAt < SYNC_COOLDOWN_MS) {
+      return;
+    }
+
+    this.syncPromise = this._doSyncOnChainState().finally(() => {
+      this.syncPromise = null;
+      this.lastSyncAt = Date.now();
+    });
+
+    return this.syncPromise;
+  }
+
+  private async _doSyncOnChainState(): Promise<void> {
+    // 1. Ensure Genesis Anchor (scarlet.ai) owner is resolved dynamically from SPACE ID
+    await this.ensureDiscoveredNode(this.config.scarletTokenId, undefined, 31);
+
+    // 2. Scan recent on-chain logs across Parliament & Mesh contracts
+    try {
+      const latestBlock = (await (this.logClients[this.activeLogClientIndex] || this.publicClient).getBlockNumber()) as bigint;
+      const fromStart = await this.getStartBlockForDiscovery(latestBlock);
+
+      if (fromStart <= latestBlock) {
+        const chunkSize = 15_000n;
+        const voteEvent = parseAbiItem(
+          "event VoteCast(uint256 indexed proposalId, uint256 indexed tokenId, address indexed voter, uint8 support)"
+        );
+        const proposalEvent = parseAbiItem(
+          "event ProposalCreated(uint256 indexed proposalId, address indexed creator, bytes32 contentCidHash)"
+        );
+        const pingEvent = parseAbiItem(
+          "event HandshakePinged(uint256 indexed fromTokenId, uint256 indexed toTokenId, uint32 timestamp)"
+        );
+        const mutualEvent = parseAbiItem(
+          "event MutualHandshakeCompleted(uint256 indexed tokenIdA, uint256 indexed tokenIdB, bytes32 indexed edgeKey)"
+        );
+        const disconnectEvent = parseAbiItem(
+          "event EdgeDisconnected(uint256 indexed tokenIdA, uint256 indexed tokenIdB, bytes32 indexed edgeKey)"
+        );
+
+        const ranges: Array<{ from: bigint; to: bigint }> = [];
+        for (let from = fromStart; from <= latestBlock; from += chunkSize) {
+          const to = from + chunkSize - 1n > latestBlock ? latestBlock : from + chunkSize - 1n;
+          ranges.push({ from, to });
+        }
+
+        // Probe first range once to lock activeLogClientIndex onto a log-capable RPC node
+        const firstRange = ranges[0];
+        const allVoteLogs: any[] = [];
+        const allPropLogs: any[] = [];
+        const allPingLogs: any[] = [];
+        const allMutualLogs: any[] = [];
+        const allDisconnectLogs: any[] = [];
+
+        const fetchRange = async ({ from, to }: { from: bigint; to: bigint }) => {
+          const [v, p, pi, m, d] = await Promise.all([
+            this.getLogsWithFallback({ address: this.config.parliamentAddress, event: voteEvent, fromBlock: from, toBlock: to }).catch(() => []),
+            this.getLogsWithFallback({ address: this.config.parliamentAddress, event: proposalEvent, fromBlock: from, toBlock: to }).catch(() => []),
+            this.getLogsWithFallback({ address: this.config.meshAddress, event: pingEvent, fromBlock: from, toBlock: to }).catch(() => []),
+            this.getLogsWithFallback({ address: this.config.meshAddress, event: mutualEvent, fromBlock: from, toBlock: to }).catch(() => []),
+            this.getLogsWithFallback({ address: this.config.meshAddress, event: disconnectEvent, fromBlock: from, toBlock: to }).catch(() => []),
+          ]);
+          allVoteLogs.push(...v);
+          allPropLogs.push(...p);
+          allPingLogs.push(...pi);
+          allMutualLogs.push(...m);
+          allDisconnectLogs.push(...d);
+        };
+
+        if (firstRange) {
+          await fetchRange(firstRange);
+        }
+        if (ranges.length > 1) {
+          await Promise.all(ranges.slice(1).map(fetchRange));
+        }
+
+        const byBlockOrder = (a: any, b: any) =>
+          Number(BigInt(a.blockNumber ?? 0) - BigInt(b.blockNumber ?? 0)) ||
+          Number((a.logIndex ?? 0) - (b.logIndex ?? 0));
+
+        allVoteLogs.sort(byBlockOrder);
+        allPropLogs.sort(byBlockOrder);
+        allPingLogs.sort(byBlockOrder);
+        allMutualLogs.sort(byBlockOrder);
+        allDisconnectLogs.sort(byBlockOrder);
+
+        const activeClient = this.logClients[this.activeLogClientIndex] || this.publicClient;
+
+        // Index VoteCast -> discovers any agent who voted on-chain + owner mapping
+        for (const log of allVoteLogs) {
+          const pId = BigInt(log.args.proposalId);
+          const tId = BigInt(log.args.tokenId);
+          const voter = log.args.voter as `0x${string}`;
+          const node = await this.ensureDiscoveredNode(tId, voter);
+          const voteKey = `${pId}:${tId}`;
+          if (!this.seenVotes.has(voteKey)) {
+            this.seenVotes.add(voteKey);
+            node.votesCount = (node.votesCount || 0) + 1;
+          }
+        }
+
+        // Index ProposalCreated -> decode createProposalBySig calldata when owner is unknown
+        for (const log of allPropLogs) {
+          const pId = BigInt(log.args.proposalId);
+          const creator = log.args.creator as `0x${string}`;
+          const pKey = pId.toString();
+          const existingProp = this.seenProposals.get(pKey);
+          let creatorTokenId = existingProp?.tokenId || this.ownerToAgent.get(creator.toLowerCase())?.tokenId;
+
+          if (!creatorTokenId && log.transactionHash) {
+            try {
+              const tx = await activeClient.getTransaction({ hash: log.transactionHash });
+              const decoded = decodeFunctionData({ abi: ParliamentAbi, data: tx.input });
+              if (decoded.functionName === "createProposalBySig" && decoded.args) {
+                creatorTokenId = BigInt((decoded.args as any)[1]).toString();
+              }
+            } catch {}
+          }
+
+          if (creatorTokenId) {
+            const node = await this.ensureDiscoveredNode(BigInt(creatorTokenId), creator);
+            if (!existingProp || !existingProp.tokenId) {
+              node.proposalsCount = (node.proposalsCount || 0) + 1;
+            }
+            this.seenProposals.set(pKey, { creator, tokenId: creatorTokenId });
+          } else if (!existingProp) {
+            this.seenProposals.set(pKey, { creator });
+          }
+        }
+
+        // Index Mesh Pings, Mutual Handshakes & Disconnections
+        for (const log of allPingLogs) {
+          const fromTid = BigInt(log.args.fromTokenId);
+          const toTid = BigInt(log.args.toTokenId);
+          const ts = Number(log.args.timestamp || Math.floor(Date.now() / 1000));
+          await Promise.all([
+            this.ensureDiscoveredNode(fromTid),
+            this.ensureDiscoveredNode(toTid),
+          ]);
+          const minTid = fromTid < toTid ? fromTid : toTid;
+          const maxTid = fromTid < toTid ? toTid : fromTid;
+          const edgeKey = keccak256(encodePacked(["uint256", "uint256"], [minTid, maxTid]));
+          const prevEdge = this.knownEdges.get(edgeKey);
+          if (!prevEdge?.isMutual) {
+            this.knownEdges.set(edgeKey, {
+              edgeKey,
+              nodeA: minTid.toString(),
+              nodeB: maxTid.toString(),
+              isMutual: false,
+              capabilityMask: 1,
+              establishedAt: ts,
+            });
+          }
+        }
+
+        for (const log of allMutualLogs) {
+          const tidA = BigInt(log.args.tokenIdA);
+          const tidB = BigInt(log.args.tokenIdB);
+          const edgeKey = log.args.edgeKey as string;
+          await Promise.all([
+            this.ensureDiscoveredNode(tidA),
+            this.ensureDiscoveredNode(tidB),
+          ]);
+          const minTid = tidA < tidB ? tidA : tidB;
+          const maxTid = tidA < tidB ? tidB : tidA;
+          this.knownEdges.set(edgeKey, {
+            edgeKey,
+            nodeA: minTid.toString(),
+            nodeB: maxTid.toString(),
+            isMutual: true,
+            capabilityMask: 1,
+            establishedAt: Math.floor(Date.now() / 1000),
+          });
+        }
+
+        for (const log of allDisconnectLogs) {
+          const edgeKey = log.args.edgeKey as string;
+          this.knownEdges.delete(edgeKey);
+        }
+
+        this.lastSyncedBlock = latestBlock;
+      }
+    } catch (err) {
+      console.warn("[BlockchainClient] On-chain discovery sync note:", err);
+    }
+
+    // 3. Refresh on-chain Mesh totalConnections counters for all known nodes in parallel
+    await Promise.allSettled(
+      Array.from(this.knownNodes.values()).map(async (node) => {
+        try {
+          const conns = await this.publicClient.readContract({
+            address: this.config.meshAddress,
+            abi: MeshAbi,
+            functionName: "totalConnections",
+            args: [BigInt(node.tokenId)],
+          });
+          node.totalConnections = Number(conns);
+        } catch {}
+      })
+    );
+
+    this.savePersistedState();
   }
 
   getAccountAddress(): `0x${string}` {
@@ -198,25 +789,30 @@ export class LiveBlockchainClient implements IBlockchainClient {
     });
   }
 
-  async getProposal(proposalId: bigint): Promise<ProposalView | null> {
+  async getProposal(proposalId: bigint, skipSync: boolean = false): Promise<ProposalView | null> {
     try {
-      const core = (await this.publicClient.readContract({
-        address: this.config.parliamentAddress,
-        abi: ParliamentAbi,
-        functionName: "proposals",
-        args: [proposalId],
-      })) as any;
+      if (!skipSync) {
+        await this.syncOnChainState().catch(() => {});
+      }
+
+      const [core, meta] = (await Promise.all([
+        this.publicClient.readContract({
+          address: this.config.parliamentAddress,
+          abi: ParliamentAbi,
+          functionName: "proposals",
+          args: [proposalId],
+        }),
+        this.publicClient.readContract({
+          address: this.config.parliamentAddress,
+          abi: ParliamentAbi,
+          functionName: "proposalMetas",
+          args: [proposalId],
+        }),
+      ])) as [any, any];
 
       if (!core) return null;
       const createdAt = Number(Array.isArray(core) ? core[7] : core.createdAt);
       if (!createdAt || createdAt === 0) return null;
-
-      const meta = (await this.publicClient.readContract({
-        address: this.config.parliamentAddress,
-        abi: ParliamentAbi,
-        functionName: "proposalMetas",
-        args: [proposalId],
-      })) as any;
 
       const statusMap = ["Pending", "Active", "Succeeded", "Defeated"];
       const startBlock = Number(Array.isArray(core) ? core[0] : core.startBlock);
@@ -237,11 +833,20 @@ export class LiveBlockchainClient implements IBlockchainClient {
       const title = metaText?.title || `ACP-00${proposalId}: Autonomous Governance Motion`;
       const description = metaText?.description || `On-chain Parliament governance proposal (IPFS CID: ${contentCidHash}).`;
 
+      const seenProp = this.seenProposals.get(proposalId.toString());
+      const agentByOwner = creator ? this.ownerToAgent.get(creator.toLowerCase()) : undefined;
+      const creatorTokenId = agentByOwner?.tokenId || seenProp?.tokenId;
+      const creatorName =
+        agentByOwner?.name ||
+        (creatorTokenId ? this.knownNodes.get(creatorTokenId)?.name || this.tokenNames.get(creatorTokenId) : undefined);
+
       return {
         id: proposalId.toString(),
         title,
         description,
         creator,
+        creatorTokenId,
+        creatorName,
         categoryId,
         contentCidHash,
         startBlock,
@@ -262,21 +867,36 @@ export class LiveBlockchainClient implements IBlockchainClient {
 
   async getAllProposals(): Promise<ProposalView[]> {
     try {
-      const count = (await this.publicClient.readContract({
-        address: this.config.parliamentAddress,
-        abi: ParliamentAbi,
-        functionName: "proposalCount",
-      })) as bigint;
-
-      const proposals: ProposalView[] = [];
-      for (let i = 1n; i <= count; i++) {
-        const p = await this.getProposal(i);
-        if (p) proposals.push(p);
+      if (this.proposalsCache && Date.now() - this.proposalsCache.fetchedAt < PROPOSALS_CACHE_TTL_MS) {
+        return this.proposalsCache.data;
       }
+
+      // Run discovery sync & read proposalCount in parallel on cache miss
+      const [, count] = await Promise.all([
+        this.syncOnChainState().catch(() => {}),
+        this.publicClient.readContract({
+          address: this.config.parliamentAddress,
+          abi: ParliamentAbi,
+          functionName: "proposalCount",
+        }) as Promise<bigint>,
+      ]);
+
+      const ids: bigint[] = [];
+      for (let i = 1n; i <= count; i++) {
+        ids.push(i);
+      }
+
+      const resolved = await Promise.all(ids.map((id) => this.getProposal(id, true)));
+      const proposals = resolved.filter((p): p is ProposalView => p !== null);
+
+      this.proposalsCache = {
+        data: proposals,
+        fetchedAt: Date.now(),
+      };
       return proposals;
     } catch (err) {
       console.error("[BlockchainClient] Failed to fetch proposals:", err);
-      return [];
+      return this.proposalsCache?.data || [];
     }
   }
 
@@ -301,14 +921,28 @@ export class LiveBlockchainClient implements IBlockchainClient {
     for (const log of receipt.logs) {
       try {
         if (log.address.toLowerCase() === this.config.parliamentAddress.toLowerCase()) {
-          // If BatchVotesSettled was emitted
           const settledEvent = parseAbiItem(
             "event BatchVotesSettled(uint256 indexed proposalId, uint256 successfulVotes, uint256 failedVotes)"
           );
-          // Simple heuristic or log extraction
+          const decoded = decodeEventLog({
+            abi: [settledEvent],
+            data: log.data,
+            topics: log.topics,
+          });
+          if (decoded.eventName === "BatchVotesSettled") {
+            successfulVotes = Number((decoded.args as any).successfulVotes);
+            failedVotes = Number((decoded.args as any).failedVotes);
+          }
         }
       } catch {}
     }
+
+    await Promise.allSettled(
+      tokenIds.map((tid) =>
+        this.registerDiscoveredAgent(tid, undefined, { votedProposalId: proposalId })
+      )
+    );
+    this.invalidateCache();
 
     return {
       txHash: hash,
@@ -377,11 +1011,14 @@ export class LiveBlockchainClient implements IBlockchainClient {
       })) as bigint;
     }
 
-    if (proposalId !== 0n && _title && _description) {
-      this.proposalMetadataStore.set(proposalId.toString(), {
+    if (proposalId !== 0n) {
+      await this.registerDiscoveredAgent(tokenId, creator, {
+        createdProposalId: proposalId,
         title: _title,
         description: _description,
       });
+    } else {
+      this.invalidateCache();
     }
 
     return {
@@ -402,18 +1039,24 @@ export class LiveBlockchainClient implements IBlockchainClient {
       args: [fromTokenId, toTokenId, capabilities],
     });
 
-    const edgeKey = fromTokenId < toTokenId
-      ? keccak256(encodePacked(["uint256", "uint256"], [fromTokenId, toTokenId]))
-      : keccak256(encodePacked(["uint256", "uint256"], [toTokenId, fromTokenId]));
+    const minTid = fromTokenId < toTokenId ? fromTokenId : toTokenId;
+    const maxTid = fromTokenId < toTokenId ? toTokenId : fromTokenId;
+    const edgeKey = keccak256(encodePacked(["uint256", "uint256"], [minTid, maxTid]));
 
     this.knownEdges.set(edgeKey, {
       edgeKey,
-      nodeA: fromTokenId < toTokenId ? fromTokenId.toString() : toTokenId.toString(),
-      nodeB: fromTokenId < toTokenId ? toTokenId.toString() : fromTokenId.toString(),
+      nodeA: minTid.toString(),
+      nodeB: maxTid.toString(),
       isMutual: true,
       capabilityMask: capabilities,
       establishedAt: Math.floor(Date.now() / 1000),
     });
+
+    await Promise.allSettled([
+      this.ensureDiscoveredNode(fromTokenId),
+      this.ensureDiscoveredNode(toTokenId),
+    ]);
+    this.savePersistedState();
 
     return hash;
   }
@@ -432,48 +1075,22 @@ export class LiveBlockchainClient implements IBlockchainClient {
   }
 
   async getMeshEdges(): Promise<MeshEdge[]> {
+    await this.syncOnChainState().catch(() => {});
     return Array.from(this.knownEdges.values());
   }
 
   async getMeshNodes(): Promise<MeshNode[]> {
-    // Refresh genesis beacon owner dynamically from SPACE ID if needed
-    const genesisNode = this.knownNodes.get(this.config.scarletTokenId.toString());
-    if (genesisNode && (!genesisNode.owner || genesisNode.owner === "0x0000000000000000000000000000000000000000")) {
-      try {
-        genesisNode.owner = await this.getOwnerOf(this.config.scarletTokenId);
-      } catch {}
-    }
-
-    // Discover any external nodes dynamically from on-chain mesh edges
-    for (const edge of this.knownEdges.values()) {
-      for (const tidStr of [edge.nodeA, edge.nodeB]) {
-        if (!this.knownNodes.has(tidStr)) {
-          try {
-            const tid = BigInt(tidStr);
-            const owner = await this.getOwnerOf(tid);
-            let totalConns = 0;
-            try {
-              totalConns = Number(
-                await this.publicClient.readContract({
-                  address: this.config.meshAddress,
-                  abi: MeshAbi,
-                  functionName: "totalConnections",
-                  args: [tid],
-                })
-              );
-            } catch {}
-            this.knownNodes.set(tidStr, {
-              tokenId: tidStr,
-              name: tid === this.config.scarletTokenId ? "scarlet.ai" : `agent-${tidStr.slice(0, 6)}...`,
-              owner,
-              totalConnections: totalConns,
-              capabilities: 7,
-            });
-          } catch {}
-        }
-      }
-    }
-    return Array.from(this.knownNodes.values());
+    await this.syncOnChainState().catch(() => {});
+    const nodes = Array.from(this.knownNodes.values());
+    // Genesis node first, then highest activity / mutual connections
+    nodes.sort((a, b) => {
+      if (a.isGenesis && !b.isGenesis) return -1;
+      if (!a.isGenesis && b.isGenesis) return 1;
+      const scoreA = (a.totalConnections || 0) * 10 + (a.votesCount || 0) + (a.proposalsCount || 0) * 3;
+      const scoreB = (b.totalConnections || 0) * 10 + (b.votesCount || 0) + (b.proposalsCount || 0) * 3;
+      return scoreB - scoreA;
+    });
+    return nodes;
   }
 
   subscribeToMeshPings(
@@ -486,8 +1103,29 @@ export class LiveBlockchainClient implements IBlockchainClient {
       eventName: "HandshakePinged",
       onLogs: (logs: any[]) => {
         for (const log of logs) {
-          const { fromTokenId, toTokenId, timestamp } = log.args;
-          callback(BigInt(fromTokenId), BigInt(toTokenId), Number(timestamp));
+          const fromTid = BigInt(log.args.fromTokenId);
+          const toTid = BigInt(log.args.toTokenId);
+          const ts = Number(log.args.timestamp);
+
+          const minTid = fromTid < toTid ? fromTid : toTid;
+          const maxTid = fromTid < toTid ? toTid : fromTid;
+          const edgeKey = keccak256(encodePacked(["uint256", "uint256"], [minTid, maxTid]));
+          if (!this.knownEdges.get(edgeKey)?.isMutual) {
+            this.knownEdges.set(edgeKey, {
+              edgeKey,
+              nodeA: minTid.toString(),
+              nodeB: maxTid.toString(),
+              isMutual: false,
+              capabilityMask: 1,
+              establishedAt: ts || Math.floor(Date.now() / 1000),
+            });
+          }
+          void Promise.allSettled([
+            this.ensureDiscoveredNode(fromTid),
+            this.ensureDiscoveredNode(toTid),
+          ]).then(() => this.savePersistedState());
+
+          callback(fromTid, toTid, ts);
         }
       },
     });
@@ -749,6 +1387,22 @@ export class MockBlockchainClient implements IBlockchainClient {
     return this.addressVoted.get(`${proposalId}:${address.toLowerCase()}`) || false;
   }
 
+  async registerDiscoveredAgent(
+    tokenId: bigint,
+    owner?: `0x${string}`
+  ): Promise<void> {
+    if (!this.tokenOwners.has(tokenId) && owner) {
+      this.tokenOwners.set(tokenId, {
+        owner,
+        name: tokenId === this.config.scarletTokenId || tokenId === 101n ? "scarlet.ai" : `agent-${tokenId}.ai`,
+      });
+    }
+  }
+
+  async resolveAgentName(tokenId: bigint): Promise<string | null> {
+    return this.tokenOwners.get(tokenId)?.name || null;
+  }
+
   async getProposal(proposalId: bigint): Promise<ProposalView | null> {
     const p = this.proposals.get(proposalId);
     if (!p) return null;
@@ -756,11 +1410,23 @@ export class MockBlockchainClient implements IBlockchainClient {
     const statusMap = ["Pending", "Active", "Succeeded", "Defeated"];
     const totalVotes = p.core.forVotes + p.core.againstVotes + p.core.abstainVotes;
 
+    let creatorTokenId: string | undefined;
+    let creatorName: string | undefined;
+    for (const [tid, entry] of this.tokenOwners.entries()) {
+      if (entry.owner.toLowerCase() === p.meta.creator.toLowerCase()) {
+        creatorTokenId = tid.toString();
+        creatorName = entry.name;
+        if (tid === this.config.scarletTokenId || tid === 101n) break;
+      }
+    }
+
     return {
       id: proposalId.toString(),
       title: p.meta.title,
       description: p.meta.description,
       creator: p.meta.creator,
+      creatorTokenId,
+      creatorName,
       categoryId: p.meta.categoryId,
       contentCidHash: p.meta.contentCidHash,
       startBlock: p.core.startBlock,
@@ -1008,6 +1674,7 @@ export class MockBlockchainClient implements IBlockchainClient {
         owner: data.owner,
         totalConnections: this.totalConnections.get(tokenId) || 0,
         capabilities: 1,
+        isGenesis: tokenId === this.config.scarletTokenId || tokenId === 101n,
       });
     }
     return nodes;

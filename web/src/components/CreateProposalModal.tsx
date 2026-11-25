@@ -155,14 +155,15 @@ export const CreateProposalModal: React.FC<CreateProposalModalProps> = ({
 
             <div>
               <label className="block text-xs font-mono text-slate-400 mb-1">
-                EXECUTIVE SPECIFICATION / IPFS BODY
+                SUMMARY SPECIFICATION (PLAIN TEXT, MAX 280 CHARS)
               </label>
               <textarea
                 required
-                rows={4}
+                rows={3}
+                maxLength={280}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Detail the technical specification, rationale, and impact on the Citizen Mesh..."
+                placeholder="Write 1-2 plain sentences describing the change and rationale (no Markdown or bullet formatting)..."
                 className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-cyan-500 resize-none font-sans"
               />
             </div>

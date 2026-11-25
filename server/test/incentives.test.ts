@@ -44,14 +44,54 @@ describe("User Incentive Program Module", () => {
       expect(result.message).toContain("Agent ID must be owned");
     });
 
-    it("should reject claim when user has not voted on all active proposals", async () => {
+    it("should reject claim when user has not voted on enough active proposals", async () => {
       const incentiveService = serverInstance.incentiveService!;
       // Register agent
       mockClient.setMockTokenOwner(testTokenId, testUserAddress, "alice.ai");
 
       const result = await incentiveService.claimReward(testUserAddress, testTokenId);
       expect(result.success).toBe(false);
-      expect(result.message).toContain("Must vote on all active proposals");
+      expect(result.message).toContain("Must vote on at least");
+    });
+
+    it("should grant reward when user votes selectively on 3 of 5 active proposals and authors one", async () => {
+      const incentiveService = serverInstance.incentiveService!;
+      mockClient.setMockTokenOwner(testTokenId, testUserAddress, "alice.ai");
+
+      // Create 2 extra active proposals so total active = 5
+      await mockClient.createMockProposal("Extra Motion 4", "Plain text body 4", 0);
+      await mockClient.createMockProposal("Extra Motion 5", "Plain text body 5", 1);
+
+      // Vote on only 3 of 5 active proposals (with varied FOR/AGAINST choices)
+      const proposals = await mockClient.getAllProposals();
+      expect(proposals.length).toBeGreaterThanOrEqual(5);
+      const supports = [1, 0, 2];
+      for (let i = 0; i < 3; i++) {
+        await mockClient.castVotesBatch(
+          BigInt(proposals[i].id),
+          [testTokenId],
+          [supports[i]],
+          [BigInt(Math.floor(Date.now() / 1000) + 3600)],
+          [`0x${i + 1}` as `0x${string}`]
+        );
+      }
+
+      const pNonce = await mockClient.getNonces(testTokenId);
+      await mockClient.createProposalBySig(
+        testUserAddress,
+        testTokenId,
+        "0x4444222233334444555566667777888899990000111122223333444455556666" as `0x${string}`,
+        28800,
+        0,
+        pNonce,
+        BigInt(Math.floor(Date.now() / 1000) + 3600),
+        "0xabcdef" as `0x${string}`,
+        "Alice's Selective Proposal",
+        "Concise plain text motion without formatting."
+      );
+
+      const result = await incentiveService.claimReward(testUserAddress, testTokenId);
+      expect(result.success).toBe(true);
     });
 
     it("should reject claim when user has voted but not authored an independent proposal", async () => {
@@ -238,6 +278,11 @@ describe("User Incentive Program Module", () => {
       const claim3 = await incentiveService.claimReward(user3, 104n);
       expect(claim3.success).toBe(false);
       expect(claim3.message).toContain("quota reached");
+      expect(claim3.message).toContain("first 2 users fulfilled");
+    });
+
+    it("should configure default server incentive cap to 42 slots", () => {
+      expect(baseConfig.incentiveMaxUsers).toBe(42);
     });
   });
 

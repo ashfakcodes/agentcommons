@@ -29,6 +29,28 @@ export const proposalTypes = {
   ],
 } as const;
 
+/**
+ * Strips Markdown formatting and collapses whitespace into a concise single-paragraph plain-text string.
+ */
+export function sanitizePlainProposalText(text: string, maxLength: number = 320): string {
+  const cleaned = (text || "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/(\*\*|__)(.*?)\1/g, "$2")
+    .replace(/(\*|_)(.*?)\1/g, "$2")
+    .replace(/^\s*[-*•]\s+/gm, "")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\r?\n+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  if (cleaned.length <= maxLength) return cleaned;
+  const sliced = cleaned.slice(0, maxLength - 3).trimEnd();
+  return `${sliced}...`;
+}
+
 export interface ProposalVerificationResult {
   isValid: boolean;
   signer?: `0x${string}`;
@@ -264,6 +286,9 @@ export class ProposalService {
       throw new Error(verification.error || "Invalid proposal signature.");
     }
 
+    const cleanTitle = sanitizePlainProposalText(title, 140);
+    const cleanDescription = sanitizePlainProposalText(description, 320);
+
     // 6. Submit createProposalBySig on-chain or simulator
     const result = await this.blockchain.createProposalBySig(
       creator as `0x${string}`,
@@ -274,8 +299,8 @@ export class ProposalService {
       pNonce,
       dline,
       cleanSig,
-      title,
-      description
+      cleanTitle,
+      cleanDescription
     );
 
     // 7. Fetch the newly created proposal view
@@ -345,7 +370,10 @@ export class ProposalService {
       throw new Error(`Invalid creator address: ${effCreator}`);
     }
 
-    const desc = description || `# ${title}\n\nGovernance proposal submitted via Agent Commons.`;
+    const desc = sanitizePlainProposalText(
+      description || `Governance proposal submitted via Agent Commons: ${title}.`,
+      320
+    );
     const effCidHash: `0x${string}` =
       contentCidHash && contentCidHash !== "0x0000000000000000000000000000000000000000000000000000000000000000"
         ? (contentCidHash.startsWith("0x") ? contentCidHash : `0x${contentCidHash}`) as `0x${string}`

@@ -27,6 +27,15 @@ export const MeshView: React.FC<MeshViewProps> = ({
   const [isPinging, setIsPinging] = useState(false);
   const [pingSuccessMessage, setPingSuccessMessage] = useState<string | null>(null);
 
+  // Keep selectedAgent refreshed when live nodes update
+  useEffect(() => {
+    if (agents.length === 0) return;
+    setSelectedAgent((prev) => {
+      if (!prev) return agents[0];
+      return agents.find((a) => String(a.tokenId) === String(prev.tokenId)) || agents[0];
+    });
+  }, [agents]);
+
   // Initialize and mount Canvas Force-Directed Mesh
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -105,9 +114,14 @@ export const MeshView: React.FC<MeshViewProps> = ({
   const hasMutualWithActive = edges.some(
     (e) =>
       e.isMutual &&
-      ((e.fromTokenId === activeAgent.tokenId && e.toTokenId === selectedAgent?.tokenId) ||
-        (e.fromTokenId === selectedAgent?.tokenId && e.toTokenId === activeAgent.tokenId))
+      ((String(e.fromTokenId) === String(activeAgent.tokenId) && String(e.toTokenId) === String(selectedAgent?.tokenId)) ||
+        (String(e.fromTokenId) === String(selectedAgent?.tokenId) && String(e.toTokenId) === String(activeAgent.tokenId)))
   );
+
+  const formatTokenId = (tid: number | string) => {
+    const str = String(tid);
+    return str.length > 14 ? `${str.slice(0, 6)}...${str.slice(-4)}` : str;
+  };
 
   return (
     <div className="space-y-4">
@@ -231,8 +245,8 @@ export const MeshView: React.FC<MeshViewProps> = ({
                     <h3 className="font-semibold text-sm font-mono text-[#e5e4e2]">
                       {selectedAgent.name}
                     </h3>
-                    <span className="text-[11px] text-[#8fa3b8] font-mono">
-                      #{selectedAgent.tokenId}
+                    <span className="text-[11px] text-[#8fa3b8] font-mono" title={`Token ID: ${selectedAgent.tokenId}`}>
+                      #{formatTokenId(selectedAgent.tokenId)}
                     </span>
                   </div>
                   <div className="flex items-center gap-1 text-[10px] text-[#8fa3b8] font-mono mt-0.5">
@@ -288,7 +302,7 @@ export const MeshView: React.FC<MeshViewProps> = ({
 
               {/* Actions */}
               <div className="space-y-2 pt-2">
-                {selectedAgent.tokenId !== activeAgent.tokenId && (
+                {String(selectedAgent.tokenId) !== String(activeAgent.tokenId) && (
                   <button
                     onClick={handleTriggerPing}
                     disabled={isPinging}

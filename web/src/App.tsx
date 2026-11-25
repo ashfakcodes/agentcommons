@@ -20,11 +20,54 @@ export const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<'parliament' | 'mesh'>('parliament');
   const [isAgentSwitcherOpen, setIsAgentSwitcherOpen] = useState(false);
 
-  // Fetch live testnet data from relayer API
+  // Fetch live mainnet data from relayer API in parallel
   const refreshLiveParliament = async () => {
     try {
-      // 1. Fetch Proposals
-      const pRes = await fetch(`${RELAYER_API_BASE}/proposals`);
+      const [pRes, nRes, eRes] = await Promise.all([
+        fetch(`${RELAYER_API_BASE}/proposals`),
+        fetch(`${RELAYER_API_BASE}/mesh/nodes`),
+        fetch(`${RELAYER_API_BASE}/mesh/edges`),
+      ]);
+
+      let liveAgentsSnapshot: AgentNode[] = agents;
+      const genesisTokenStr = String(INITIAL_AGENTS[0].tokenId);
+
+      // 1. Parse Mesh Nodes first so proposals can also resolve creator names by owner
+      if (nRes.ok) {
+        const nData = await nRes.json();
+        if (nData.nodes && nData.nodes.length > 0) {
+          const liveAgents: AgentNode[] = nData.nodes.map((n: any) => {
+            const tidStr = String(n.tokenId);
+            const mockMatch = INITIAL_AGENTS.find(
+              (a) => String(a.tokenId) === tidStr || a.name === n.name
+            );
+            const isGenesis = Boolean(n.isGenesis) || tidStr === genesisTokenStr || n.name === 'scarlet.ai';
+            return {
+              id: n.name || tidStr,
+              name: n.name || `agent-${tidStr.slice(0, 6)}...`,
+              tokenId: tidStr,
+              owner: n.owner,
+              isGenesis,
+              isRelayer: isGenesis,
+              capabilities: n.capabilities || mockMatch?.capabilities || 7,
+              registeredDate: mockMatch?.registeredDate || '2026-11-24',
+              avatarSeed: mockMatch?.avatarSeed || (n.name ? String(n.name).split('.')[0] : tidStr.slice(0, 6)),
+              reputationScore: mockMatch?.reputationScore || 98.0,
+              bio: mockMatch?.bio || `Verified Agent ID on SPACE ID Registrar (${n.name || tidStr})`,
+              peersCount: n.totalConnections ?? mockMatch?.peersCount ?? 0,
+              votesCount: n.votesCount ?? mockMatch?.votesCount ?? 0,
+              lastPingTimestamp: n.lastActivityAt ? Number(n.lastActivityAt) * 1000 : Date.now() - 3600 * 1000,
+            };
+          });
+          liveAgentsSnapshot = liveAgents;
+          setAgents(liveAgents);
+          setActiveAgent(
+            (prev) => liveAgents.find((a) => String(a.tokenId) === String(prev.tokenId)) || liveAgents[0]
+          );
+        }
+      }
+
+      // 2. Parse Proposals & resolve creatorName dynamically (backend -> liveAgents -> shortened address)
       if (pRes.ok) {
         const pData = await pRes.json();
         if (pData.proposals && pData.proposals.length > 0) {
@@ -34,63 +77,58 @@ export const App: React.FC = () => {
             2: 'Gas Subsidy',
             3: 'Security & Identity',
           };
-          const mapped: Proposal[] = pData.proposals.map((p: any) => ({
-            id: Number(p.id),
-            title: p.title || `ACP-00${p.id}: Governance Motion`,
-            description: p.description || 'On-chain Parliament governance proposal.',
-            creator: p.creator,
-            creatorName: p.creator?.toLowerCase() === '0xf82c62959fbfdd18f243f17d170fea277ddf3ce2' ? 'scarlet.ai' : `agent.ai`,
-            categoryId: Number(p.categoryId || 0),
-            categoryName: categoryNames[Number(p.categoryId || 0)] || 'Governance',
-            contentCidHash: p.contentCidHash,
-            startBlock: Number(p.startBlock || 0),
-            endBlock: Number(p.endBlock || 0),
-            snapshotBlock: Number(p.snapshotBlock || 0),
-            forVotes: Number(p.forVotes || 0),
-            againstVotes: Number(p.againstVotes || 0),
-            abstainVotes: Number(p.abstainVotes || 0),
-            status: p.status || 'Active',
-            createdAt: p.createdAt ? Number(p.createdAt) * 1000 : Date.now(),
-          }));
+          const mapped: Proposal[] = pData.proposals.map((p: any) => {
+            const creatorAddr = String(p.creator || '');
+            const matchedAgent = liveAgentsSnapshot.find(
+              (a) => a.owner && creatorAddr && a.owner.toLowerCase() === creatorAddr.toLowerCase()
+            );
+            const shortAddr = creatorAddr.length > 10
+              ? `${creatorAddr.slice(0, 6)}...${creatorAddr.slice(-4)}`
+              : creatorAddr || 'Unknown';
+            return {
+              id: Number(p.id),
+              title: p.title || `ACP-00${p.id}: Governance Motion`,
+              description: p.description || 'On-chain Parliament governance proposal.',
+              creator: p.creator,
+              creatorName: p.creatorName || matchedAgent?.name || shortAddr,
+              categoryId: Number(p.categoryId || 0),
+              categoryName: categoryNames[Number(p.categoryId || 0)] || 'Governance',
+              contentCidHash: p.contentCidHash,
+              startBlock: Number(p.startBlock || 0),
+              endBlock: Number(p.endBlock || 0),
+              snapshotBlock: Number(p.snapshotBlock || 0),
+              forVotes: Number(p.forVotes || 0),
+              againstVotes: Number(p.againstVotes || 0),
+              abstainVotes: Number(p.abstainVotes || 0),
+              status: p.status || 'Active',
+              createdAt: p.createdAt ? Number(p.createdAt) * 1000 : Date.now(),
+            };
+          });
           setProposals(mapped);
         }
       }
 
-      // 2. Fetch Mesh Nodes
-      const nRes = await fetch(`${RELAYER_API_BASE}/mesh/nodes`);
-      if (nRes.ok) {
-        const nData = await nRes.json();
-        if (nData.nodes && nData.nodes.length > 0) {
-          const liveAgents: AgentNode[] = nData.nodes.map((n: any) => {
-            const mockMatch = INITIAL_AGENTS.find((a) => a.tokenId === Number(n.tokenId) || a.name === n.name);
-            return {
-              id: n.name,
-              name: n.name,
-              tokenId: Number(n.tokenId),
-              owner: n.owner,
-              isGenesis: Number(n.tokenId) === 101,
-              isRelayer: Number(n.tokenId) === 101,
-              capabilities: n.capabilities || mockMatch?.capabilities || 7,
-              registeredDate: mockMatch?.registeredDate || '2026-11-24',
-              avatarSeed: mockMatch?.avatarSeed || n.name.split('.')[0],
-              reputationScore: mockMatch?.reputationScore || 98.0,
-              bio: mockMatch?.bio || `Verified Agent ID on SPACE ID Registrar (${n.name})`,
-              peersCount: n.totalConnections ?? mockMatch?.peersCount ?? 0,
-              votesCount: mockMatch?.votesCount ?? 0,
-              lastPingTimestamp: Date.now() - 3600 * 1000,
-            };
-          });
-          setAgents(liveAgents);
-          setActiveAgent((prev) => liveAgents.find((a) => a.tokenId === prev.tokenId) || liveAgents[0]);
-        }
-      }
-
-      // 3. Fetch Mesh Edges
-      const eRes = await fetch(`${RELAYER_API_BASE}/mesh/edges`);
+      // 3. Parse Mesh Edges & normalize backend { nodeA, nodeB } into { fromTokenId, toTokenId }
       if (eRes.ok) {
         const eData = await eRes.json();
-        if (eData.edges && eData.edges.length > 0) {
-          setEdges(eData.edges);
+        if (Array.isArray(eData.edges)) {
+          const resolveName = (tid: string) =>
+            liveAgentsSnapshot.find((a) => String(a.tokenId) === tid)?.name || `agent-${tid.slice(0, 6)}...`;
+          const mappedEdges: MeshEdge[] = eData.edges.map((e: any) => {
+            const fromTid = String(e.fromTokenId ?? e.nodeA ?? '');
+            const toTid = String(e.toTokenId ?? e.nodeB ?? '');
+            return {
+              fromTokenId: fromTid,
+              toTokenId: toTid,
+              fromName: e.fromName || resolveName(fromTid),
+              toName: e.toName || resolveName(toTid),
+              edgeKey: e.edgeKey || computeCanonicalKey(fromTid || '0', toTid || '0'),
+              isMutual: Boolean(e.isMutual),
+              establishedAt: e.establishedAt ? Number(e.establishedAt) * 1000 : Date.now(),
+              capabilityMask: Number(e.capabilityMask || 1),
+            };
+          });
+          setEdges(mappedEdges);
         }
       }
     } catch (err) {
@@ -129,7 +167,7 @@ export const App: React.FC = () => {
 
     // Update active agent votes count
     setAgents((prev) =>
-      prev.map((a) => (a.tokenId === activeAgent.tokenId ? { ...a, votesCount: a.votesCount + 1 } : a))
+      prev.map((a) => (String(a.tokenId) === String(activeAgent.tokenId) ? { ...a, votesCount: a.votesCount + 1 } : a))
     );
 
     setTimeout(refreshLiveParliament, 3000);
@@ -143,8 +181,8 @@ export const App: React.FC = () => {
 
   // Handle handshake ping / reciprocation
   const handleSendPing = async (fromTokenId: number | string, toTokenId: number | string) => {
-    const fromAgent = agents.find((a) => a.tokenId === fromTokenId);
-    const toAgent = agents.find((a) => a.tokenId === toTokenId);
+    const fromAgent = agents.find((a) => String(a.tokenId) === String(fromTokenId));
+    const toAgent = agents.find((a) => String(a.tokenId) === String(toTokenId));
     if (!fromAgent || !toAgent) return;
 
     try {
