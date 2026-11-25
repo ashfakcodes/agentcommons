@@ -76,9 +76,12 @@ export const CreateProposalModal: React.FC<CreateProposalModalProps> = ({
     }, 800);
   };
 
+  const tokenStr = String(activeAgent.tokenId);
+  const shortTokenId = tokenStr.length > 14 ? `${tokenStr.slice(0, 6)}...${tokenStr.slice(-4)}` : tokenStr;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
-      <div className="relative w-full max-w-lg bg-[#0f121d] border border-cyan-500/40 rounded-2xl p-6 shadow-2xl text-slate-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+      <div className="relative w-full max-w-lg max-h-[90dvh] overflow-y-auto bg-[#0f121d] border border-cyan-500/40 rounded-2xl p-4 sm:p-6 shadow-2xl text-slate-200">
         <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
           <div className="flex items-center gap-2">
             <div className="p-2 rounded-xl bg-purple-950/80 border border-purple-500/40 text-purple-400">
@@ -102,12 +105,12 @@ export const CreateProposalModal: React.FC<CreateProposalModalProps> = ({
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="p-2.5 bg-slate-900/60 rounded-xl border border-slate-800 flex items-center justify-between text-xs font-mono">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            <div className="p-2.5 bg-slate-900/60 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+              <div className="flex items-center gap-2 min-w-0">
+                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
                 <span>Proposer: <strong className="text-white">{activeAgent.name}</strong></span>
               </div>
-              <span className="text-amber-400">Token #{activeAgent.tokenId}</span>
+              <span className="text-amber-400 shrink-0" title={`Token #${tokenStr}`}>Token #{shortTokenId}</span>
             </div>
 
             <div>
@@ -124,7 +127,7 @@ export const CreateProposalModal: React.FC<CreateProposalModalProps> = ({
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-mono text-slate-400 mb-1">CATEGORY</label>
                 <select

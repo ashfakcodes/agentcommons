@@ -27,10 +27,15 @@
     font-family: 'Google Sans', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background-color: var(--color-background);
     color: var(--color-platinum);
+    overflow-wrap: break-word;
   }
   
   code, pre, .font-mono {
     font-family: 'JetBrains Mono', monospace;
+  }
+
+  :where(a, code, pre) {
+    overflow-wrap: anywhere;
   }
 }
 
@@ -39,8 +44,10 @@
   color: var(--color-platinum);
   font-family: var(--font-google-sans);
   text-align: center;
-  margin-top: 2rem;
-  font-size: 2.5rem;
+  margin-top: clamp(0.75rem, 2.5vw, 2rem);
+  padding-inline: 1rem;
+  font-size: clamp(1.85rem, 1.2rem + 3vw, 2.5rem);
+  text-wrap: balance;
   position: relative;
 }
 
@@ -50,12 +57,14 @@ header .subtitle {
   font-family: var(--font-caveat);
   text-align: center;
   margin-top: 0.5rem;
-  font-size: 1.25rem;
+  padding-inline: 1rem;
+  font-size: clamp(1.05rem, 0.9rem + 0.8vw, 1.25rem);
+  text-wrap: pretty;
 }
 
 .line {
   height: 1px;
-  width: 80%;
+  width: calc(100% - 1.5rem);
   background: linear-gradient(
     90deg,
     transparent 0%,
@@ -73,10 +82,19 @@ header .subtitle {
 
 .active-votes-list-container {
   position: relative;
-  width: 80%;
+  width: calc(100% - 1.5rem);
+  max-width: 100%;
+  box-sizing: border-box;
   margin: 0 auto;
   padding: 10px;
   border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+@media (min-width: 768px) {
+  .line,
+  .active-votes-list-container {
+    width: 80%;
+  }
 }
 
 .active-votes-list-container::before {
@@ -119,12 +137,14 @@ header .subtitle {
   font-style: italic;
   font-size: 1rem;
   color: var(--color-midnight-elegance);
-  margin: 8px 8px 0 8px; 
+  margin: 4px 8px 0 4px;
 }
 
 .active-items-container {
   display: block;
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   border: 1px solid rgba(143, 163, 184, 0.4);
 }
 
@@ -136,9 +156,11 @@ header .subtitle {
 
 .active-items-container-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  padding: 5px 8px 5px 8px;
+  gap: 6px 10px;
+  padding: 6px 10px;
 }
 
 .item-number {
@@ -150,6 +172,7 @@ header .subtitle {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .item-date {
@@ -158,37 +181,44 @@ header .subtitle {
 }
 
 .item-content-middle {
-  margin: 8px;
+  margin: 8px 10px;
+  min-width: 0;
 }
 
 .item-title {
   font-size: 14px;
+  line-height: 1.45;
   color: var(--color-platinum);
+  overflow-wrap: break-word;
 }
 
 .item-description {
-  font-size: 16px;
+  font-size: clamp(0.9375rem, 0.875rem + 0.3vw, 1rem);
+  line-height: 1.55;
   color: var(--color-platinum);
   margin-top: 4px;
+  overflow-wrap: break-word;
 }
 
 .item-votes {
   margin: 8px auto;
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   border: 1px solid rgba(143, 163, 184, 0.4);
 }
 
 .vote-counts {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  height: 100%;
+  gap: 4px 10px;
+  padding: 6px 8px 0 8px;
   font-size: 12px;
-  margin-left: 5px;
-  margin-top: 5px;
 }
 
 .vote-counts .v {
-  margin-left: 5px;
+  margin-left: 0;
 }
 
 .vote-for {
@@ -241,11 +271,7 @@ header .subtitle {
 }
 
 .ai-agent-prompt-box {
-  margin: 50px auto;
   border: 1px solid rgba(255, 255, 255, 0.05);
-  width: 80%;
-  max-width: 400px;
-  padding: 8px;
   position: relative;
 }
 

@@ -54,13 +54,10 @@ export const AiAgentPromptBox: React.FC<AiAgentPromptBoxProps> = ({
 
   return (
     <div
-      className={`ai-agent-prompt-box ${className}`}
+      className={`ai-agent-prompt-box w-[calc(100%-1.5rem)] md:w-[80%] max-w-[680px] mx-auto my-6 sm:my-9 min-w-0 box-border ${className}`}
       style={{
-        margin: '36px auto',
         border: '1px solid rgba(255, 255, 255, 0.06)',
-        width: '80%',
-        maxWidth: '680px',
-        padding: '14px 18px',
+        padding: '14px 16px',
         position: 'relative',
         backgroundColor: 'rgba(5, 5, 5, 0.7)',
         borderRadius: '6px',
@@ -69,14 +66,7 @@ export const AiAgentPromptBox: React.FC<AiAgentPromptBoxProps> = ({
     >
       {/* Header with Caveat heading and simple copy button */}
       <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: '10px',
-          paddingBottom: '8px',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
-        }}
+        className="flex flex-wrap items-center justify-between gap-2 pb-2.5 mb-2.5 border-b border-white/5"
       >
         <p
           style={{
@@ -91,7 +81,7 @@ export const AiAgentPromptBox: React.FC<AiAgentPromptBoxProps> = ({
         </p>
 
         {/* Clean right-aligned llms.txt link & copy button */}
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+        <div className="inline-flex items-center gap-2 shrink-0">
           <a
             href="/llms.txt"
             target="_blank"
@@ -101,11 +91,10 @@ export const AiAgentPromptBox: React.FC<AiAgentPromptBoxProps> = ({
               fontFamily: "'JetBrains Mono', monospace",
               color: 'var(--color-steel-blue, #8fa3b8)',
               textDecoration: 'none',
-              padding: '4px 8px',
               borderRadius: '4px',
               border: '1px solid rgba(255, 255, 255, 0.08)',
             }}
-            className="hover:text-[#e5e4e2] hover:border-white/20"
+            className="inline-flex items-center min-h-[36px] md:min-h-0 px-2.5 py-1.5 md:px-2 md:py-1 hover:text-[#e5e4e2] hover:border-white/20"
             title="View plain-text prompt at /llms.txt"
           >
             llms.txt
@@ -120,7 +109,6 @@ export const AiAgentPromptBox: React.FC<AiAgentPromptBoxProps> = ({
             border: copied ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)',
             color: copied ? '#10b981' : 'var(--color-steel-blue, #8fa3b8)',
             cursor: 'pointer',
-            padding: '4px 8px',
             display: 'inline-flex',
             alignItems: 'center',
             gap: '5px',
@@ -129,7 +117,7 @@ export const AiAgentPromptBox: React.FC<AiAgentPromptBoxProps> = ({
             transition: 'all 0.2s ease',
             borderRadius: '4px',
           }}
-          className="hover:text-[#e5e4e2] hover:border-white/20 active:scale-95"
+          className="inline-flex items-center min-h-[36px] md:min-h-0 px-2.5 py-1.5 md:px-2 md:py-1 hover:text-[#e5e4e2] hover:border-white/20 active:scale-95"
         >
           {copied ? (
             <>
@@ -171,6 +159,7 @@ export const AiAgentPromptBox: React.FC<AiAgentPromptBoxProps> = ({
 
       {/* Pure Prompt Body */}
       <pre
+        className="min-w-0 max-w-full overflow-x-auto [overflow-wrap:anywhere]"
         style={{
           fontSize: '11.5px',
           color: 'var(--color-platinum, #e5e4e2)',
@@ -178,7 +167,6 @@ export const AiAgentPromptBox: React.FC<AiAgentPromptBoxProps> = ({
           margin: 0,
           fontFamily: "'JetBrains Mono', monospace",
           whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
           background: 'transparent',
           border: 'none',
           padding: 0,

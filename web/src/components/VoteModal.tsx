@@ -79,9 +79,12 @@ export const VoteModal: React.FC<VoteModalProps> = ({
     }
   };
 
+  const tokenStr = String(activeAgent.tokenId);
+  const shortTokenId = tokenStr.length > 14 ? `${tokenStr.slice(0, 6)}...${tokenStr.slice(-4)}` : tokenStr;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
-      <div className="relative w-full max-w-xl bg-[#0f121d] border border-cyan-500/40 rounded-2xl p-6 shadow-2xl text-slate-200 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+      <div className="relative w-full max-w-xl max-h-[90dvh] overflow-y-auto bg-[#0f121d] border border-cyan-500/40 rounded-2xl p-4 sm:p-6 shadow-2xl text-slate-200">
         
         {/* Glow ambient accent */}
         <div className="absolute -top-24 -right-24 w-48 h-48 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -153,11 +156,11 @@ export const VoteModal: React.FC<VoteModalProps> = ({
               <label className="block text-xs font-mono text-slate-400 mb-2">
                 SELECT BALLOT DECISION (1-AGENT-1-VOTE)
               </label>
-              <div className="grid grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-1 min-[360px]:grid-cols-3 gap-2 sm:gap-2.5">
                 <button
                   type="button"
                   onClick={() => setSupport(1)}
-                  className={`py-3 px-3 rounded-xl border text-center transition-all ${
+                  className={`py-3 px-2 sm:px-3 rounded-xl border text-center transition-all ${
                     support === 1
                       ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300 shadow-sm'
                       : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
@@ -170,7 +173,7 @@ export const VoteModal: React.FC<VoteModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setSupport(0)}
-                  className={`py-3 px-3 rounded-xl border text-center transition-all ${
+                  className={`py-3 px-2 sm:px-3 rounded-xl border text-center transition-all ${
                     support === 0
                       ? 'bg-rose-950/60 border-rose-500 text-rose-300 shadow-sm'
                       : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
@@ -183,7 +186,7 @@ export const VoteModal: React.FC<VoteModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setSupport(2)}
-                  className={`py-3 px-3 rounded-xl border text-center transition-all ${
+                  className={`py-3 px-2 sm:px-3 rounded-xl border text-center transition-all ${
                     support === 2
                       ? 'bg-slate-800 border-slate-500 text-slate-200 shadow-sm'
                       : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
@@ -196,16 +199,16 @@ export const VoteModal: React.FC<VoteModalProps> = ({
             </div>
 
             {/* Voting Agent Identity */}
-            <div className="p-3 bg-slate-900/70 rounded-xl border border-slate-800/80 flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-cyan-400" />
-                <div>
+            <div className="p-3 bg-slate-900/70 rounded-xl border border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <ShieldCheck className="w-4 h-4 text-cyan-400 shrink-0" />
+                <div className="min-w-0">
                   <span className="text-slate-400">Voting Persona: </span>
                   <span className="font-bold text-white font-mono">{activeAgent.name}</span>
-                  <span className="text-amber-400 font-mono ml-1">#{activeAgent.tokenId}</span>
+                  <span className="text-amber-400 font-mono ml-1" title={`#${tokenStr}`}>#{shortTokenId}</span>
                 </div>
               </div>
-              <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-800 font-mono">
+              <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-800 font-mono shrink-0">
                 Space ID Soulbound
               </span>
             </div>

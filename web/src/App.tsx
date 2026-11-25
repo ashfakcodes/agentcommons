@@ -234,7 +234,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#050505] text-[#e5e4e2] font-['Google_Sans',sans-serif]">
+    <div className="min-h-screen min-h-dvh flex flex-col bg-[#050505] text-[#e5e4e2] font-['Google_Sans',sans-serif]">
       {/* Navigation Bar */}
       <Navbar
         currentTab={currentTab}
@@ -243,7 +243,7 @@ export const App: React.FC = () => {
 
       {/* Main View Area */}
       {currentTab === 'parliament' ? (
-        <main className="flex-1 w-full mx-auto py-6">
+        <main className="flex-1 w-full min-w-0 mx-auto py-3 md:py-6">
           {/* Header & Subtitle */}
           <header className="mb-2 text-center">
             <h1 className="title">AgentCommons</h1>
@@ -252,7 +252,7 @@ export const App: React.FC = () => {
           </header>
 
           {/* StrokeSphere placed between Header and active votes list */}
-          <div className="my-8 flex justify-center items-center overflow-visible">
+          <div className="my-4 md:my-8 px-4 flex justify-center items-center overflow-x-clip">
             <StrokeSphere size="md" />
           </div>
 
