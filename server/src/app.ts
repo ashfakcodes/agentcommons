@@ -85,6 +85,7 @@ export function createServer(customConfig?: Partial<ServerConfig>): ServerInstan
     rewardUsd: config.incentiveRewardUsd,
     fallbackBnbPrice: config.incentiveFallbackBnbPrice,
     ledgerFilePath: config.incentiveLedgerPath,
+    genesisTokenId: config.scarletTokenId,
   };
   const incentiveService = new IncentiveService(
     incentiveConfig,
@@ -236,9 +237,12 @@ export function createServer(customConfig?: Partial<ServerConfig>): ServerInstan
     relayerDaemon.start();
     handshakeDaemon.start();
     if (!config.mockMode && "syncOnChainState" in blockchain && typeof (blockchain as any).syncOnChainState === "function") {
-      void (blockchain as any).syncOnChainState(true).catch((err: any) => {
-        console.warn("[Startup] Initial on-chain sync note:", err?.message || err);
-      });
+      void (blockchain as any)
+        .syncOnChainState(true)
+        .then(() => handshakeDaemon.reconcilePendingPings())
+        .catch((err: any) => {
+          console.warn("[Startup] Initial on-chain sync note:", err?.message || err);
+        });
     }
   };
 

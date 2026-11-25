@@ -31,17 +31,45 @@ export const App: React.FC = () => {
 
       let liveAgentsSnapshot: AgentNode[] = agents;
       const genesisTokenStr = String(INITIAL_AGENTS[0].tokenId);
+      let mappedEdges: MeshEdge[] | null = null;
 
-      // 1. Parse Mesh Nodes first so proposals can also resolve creator names by owner
+      // 1. Parse Mesh Edges first so peer counts reconcile cleanly with live mutual edges
+      if (eRes.ok) {
+        const eData = await eRes.json();
+        if (Array.isArray(eData.edges)) {
+          mappedEdges = eData.edges.map((e: any) => {
+            const fromTid = String(e.fromTokenId ?? e.nodeA ?? '');
+            const toTid = String(e.toTokenId ?? e.nodeB ?? '');
+            return {
+              fromTokenId: fromTid,
+              toTokenId: toTid,
+              fromName: e.fromName || `agent-${fromTid.slice(0, 6)}...`,
+              toName: e.toName || `agent-${toTid.slice(0, 6)}...`,
+              edgeKey: e.edgeKey || computeCanonicalKey(fromTid || '0', toTid || '0'),
+              isMutual: Boolean(e.isMutual),
+              establishedAt: e.establishedAt ? Number(e.establishedAt) * 1000 : Date.now(),
+              capabilityMask: Number(e.capabilityMask || 1),
+            };
+          });
+        }
+      }
+
+      // 2. Parse Mesh Nodes so proposals can resolve creator names and derive mutual peersCount
       if (nRes.ok) {
         const nData = await nRes.json();
         if (nData.nodes && nData.nodes.length > 0) {
+          const activeEdgesForCount = mappedEdges ?? edges;
           const liveAgents: AgentNode[] = nData.nodes.map((n: any) => {
             const tidStr = String(n.tokenId);
             const mockMatch = INITIAL_AGENTS.find(
               (a) => String(a.tokenId) === tidStr || a.name === n.name
             );
             const isGenesis = Boolean(n.isGenesis) || tidStr === genesisTokenStr || n.name === 'scarlet.ai';
+            const mutualEdgeCount = activeEdgesForCount.filter(
+              (e) =>
+                e.isMutual &&
+                (String(e.fromTokenId) === tidStr || String(e.toTokenId) === tidStr)
+            ).length;
             return {
               id: n.name || tidStr,
               name: n.name || `agent-${tidStr.slice(0, 6)}...`,
@@ -54,7 +82,7 @@ export const App: React.FC = () => {
               avatarSeed: mockMatch?.avatarSeed || (n.name ? String(n.name).split('.')[0] : tidStr.slice(0, 6)),
               reputationScore: mockMatch?.reputationScore || 98.0,
               bio: mockMatch?.bio || `Verified Agent ID on SPACE ID Registrar (${n.name || tidStr})`,
-              peersCount: n.totalConnections ?? mockMatch?.peersCount ?? 0,
+              peersCount: Math.max(Number(n.totalConnections ?? mockMatch?.peersCount ?? 0), mutualEdgeCount),
               votesCount: n.votesCount ?? mockMatch?.votesCount ?? 0,
               lastPingTimestamp: n.lastActivityAt ? Number(n.lastActivityAt) * 1000 : Date.now() - 3600 * 1000,
             };
@@ -67,7 +95,19 @@ export const App: React.FC = () => {
         }
       }
 
-      // 2. Parse Proposals & resolve creatorName dynamically (backend -> liveAgents -> shortened address)
+      if (mappedEdges) {
+        const resolveName = (tid: string) =>
+          liveAgentsSnapshot.find((a) => String(a.tokenId) === tid)?.name || `agent-${tid.slice(0, 6)}...`;
+        setEdges(
+          mappedEdges.map((edge) => ({
+            ...edge,
+            fromName: edge.fromName.startsWith('agent-') ? resolveName(String(edge.fromTokenId)) : edge.fromName,
+            toName: edge.toName.startsWith('agent-') ? resolveName(String(edge.toTokenId)) : edge.toName,
+          }))
+        );
+      }
+
+      // 3. Parse Proposals & resolve creatorName dynamically (backend -> liveAgents -> shortened address)
       if (pRes.ok) {
         const pData = await pRes.json();
         const categoryNames: Record<number, Proposal['categoryName']> = {
@@ -114,30 +154,6 @@ export const App: React.FC = () => {
 
         if (currentList.length > 0 || legacyList.length > 0) {
           setProposals([...currentList, ...legacyList]);
-        }
-      }
-
-      // 3. Parse Mesh Edges & normalize backend { nodeA, nodeB } into { fromTokenId, toTokenId }
-      if (eRes.ok) {
-        const eData = await eRes.json();
-        if (Array.isArray(eData.edges)) {
-          const resolveName = (tid: string) =>
-            liveAgentsSnapshot.find((a) => String(a.tokenId) === tid)?.name || `agent-${tid.slice(0, 6)}...`;
-          const mappedEdges: MeshEdge[] = eData.edges.map((e: any) => {
-            const fromTid = String(e.fromTokenId ?? e.nodeA ?? '');
-            const toTid = String(e.toTokenId ?? e.nodeB ?? '');
-            return {
-              fromTokenId: fromTid,
-              toTokenId: toTid,
-              fromName: e.fromName || resolveName(fromTid),
-              toName: e.toName || resolveName(toTid),
-              edgeKey: e.edgeKey || computeCanonicalKey(fromTid || '0', toTid || '0'),
-              isMutual: Boolean(e.isMutual),
-              establishedAt: e.establishedAt ? Number(e.establishedAt) * 1000 : Date.now(),
-              capabilityMask: Number(e.capabilityMask || 1),
-            };
-          });
-          setEdges(mappedEdges);
         }
       }
     } catch (err) {

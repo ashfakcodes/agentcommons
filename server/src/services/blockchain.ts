@@ -69,6 +69,7 @@ export interface IBlockchainClient {
     hasPendingOutbound: boolean;
     hasPendingInbound: boolean;
   }>;
+  getPendingInboundPings?(targetTokenId: bigint): Promise<bigint[]>;
   pingReciprocal(
     fromTokenId: bigint,
     toTokenId: bigint,
@@ -90,6 +91,7 @@ export interface IBlockchainClient {
     activity?: {
       votedProposalId?: bigint;
       createdProposalId?: bigint;
+      contentCidHash?: string;
       title?: string;
       description?: string;
       capabilities?: number;
@@ -114,6 +116,7 @@ const DEFAULT_LOG_FALLBACK_RPCS = [
 
 const SYNC_COOLDOWN_MS = 15_000;
 const PROPOSALS_CACHE_TTL_MS = 10_000;
+const LEGACY_PARLIAMENT_ADDRESS = "0xd3061bEA5ad846d1e8aec3De18EAd4F5A53e305f";
 
 export function formatAiDomainName(raw: string): string {
   const clean = raw.trim().replace(/^@/, "");
@@ -174,6 +177,7 @@ export async function resolveNameFromTokenUri(
 
 interface PersistedRelayerState {
   lastSyncedBlock?: string;
+  lastSyncedBlocks?: Record<string, string>;
   proposalMetadata?: Record<string, { title: string; description: string }>;
   ownerIndex?: Record<string, { tokenId: string; name: string }>;
   seenVotes?: string[];
@@ -202,11 +206,31 @@ export class LiveBlockchainClient implements IBlockchainClient {
   private ownerToAgent = new Map<string, { tokenId: string; name: string }>();
   private seenVotes = new Set<string>();
   private seenProposals = new Map<string, { creator: string; tokenId?: string }>();
+  private lastSyncedBlocks = new Map<string, bigint>();
   private lastSyncedBlock = 0n;
   private lastSyncAt = 0;
   private syncPromise: Promise<void> | null = null;
   private proposalsCache: { data: ProposalView[]; fetchedAt: number } | null = null;
   private legacyProposalsCache: { data: ProposalView[]; fetchedAt: number } | null = null;
+  private legacyProposalCountOffset = 6;
+
+  private get syncScopeKey(): string {
+    return `${this.config.parliamentAddress.toLowerCase()}:${this.config.meshAddress.toLowerCase()}`;
+  }
+
+  private scopeProposalKey(proposalId: bigint | string, contractAddress?: string): string {
+    const addr = (contractAddress || this.config.parliamentAddress).toLowerCase();
+    return `${addr}:${proposalId.toString()}`;
+  }
+
+  private scopeVoteKey(
+    proposalId: bigint | string,
+    tokenId: bigint | string,
+    contractAddress?: string
+  ): string {
+    const addr = (contractAddress || this.config.parliamentAddress).toLowerCase();
+    return `${addr}:${proposalId.toString()}:${tokenId.toString()}`;
+  }
 
   constructor(private config: ServerConfig) {
     this.hotWallet = new HotWalletManager(config);
@@ -363,14 +387,38 @@ export class LiveBlockchainClient implements IBlockchainClient {
       if (!fs.existsSync(this.stateFilePath)) return;
       const raw = fs.readFileSync(this.stateFilePath, "utf8");
       const parsed = JSON.parse(raw) as PersistedRelayerState;
+      const legacyPrefix = LEGACY_PARLIAMENT_ADDRESS.toLowerCase();
 
-      if (parsed.lastSyncedBlock) {
+      if (parsed.lastSyncedBlocks) {
+        for (const [scope, blk] of Object.entries(parsed.lastSyncedBlocks)) {
+          if (blk) this.lastSyncedBlocks.set(scope.toLowerCase(), BigInt(blk));
+        }
+      }
+      const scopedBlock = this.lastSyncedBlocks.get(this.syncScopeKey);
+      if (scopedBlock !== undefined) {
+        this.lastSyncedBlock = scopedBlock;
+      } else if (
+        parsed.lastSyncedBlock &&
+        this.config.parliamentAddress.toLowerCase() === legacyPrefix
+      ) {
         this.lastSyncedBlock = BigInt(parsed.lastSyncedBlock);
       }
+
       if (parsed.proposalMetadata) {
         for (const [k, v] of Object.entries(parsed.proposalMetadata)) {
-          if (v?.title && v?.description) {
-            this.proposalMetadataStore.set(k, v);
+          if (!v?.title || !v?.description) continue;
+          const lowerK = k.toLowerCase();
+          if (lowerK.includes(":") || lowerK.startsWith("0x")) {
+            // Do not let persisted state clobber freshly seeded CID hashes unless unscoped
+            if (!this.proposalMetadataStore.has(lowerK)) {
+              this.proposalMetadataStore.set(lowerK, v);
+            }
+          } else {
+            // Migrate unscoped legacy numeric IDs (e.g. "5") strictly under Parliament v1
+            const legacyScoped = `${legacyPrefix}:${k}`;
+            if (!this.proposalMetadataStore.has(legacyScoped)) {
+              this.proposalMetadataStore.set(legacyScoped, v);
+            }
           }
         }
       }
@@ -382,11 +430,24 @@ export class LiveBlockchainClient implements IBlockchainClient {
         }
       }
       if (Array.isArray(parsed.seenVotes)) {
-        for (const vk of parsed.seenVotes) this.seenVotes.add(vk);
+        for (const vk of parsed.seenVotes) {
+          const parts = vk.split(":");
+          if (parts.length === 2) {
+            // Legacy unscoped "proposalId:tokenId"
+            this.seenVotes.add(`${legacyPrefix}:${vk}`);
+          } else {
+            this.seenVotes.add(vk.toLowerCase());
+          }
+        }
       }
       if (parsed.seenProposals) {
         for (const [pid, meta] of Object.entries(parsed.seenProposals)) {
-          this.seenProposals.set(pid, meta);
+          if (pid.includes(":")) {
+            this.seenProposals.set(pid.toLowerCase(), meta);
+          } else {
+            // Migrate legacy unscoped proposal ID (e.g. "5" from quriows.ai) strictly under v1
+            this.seenProposals.set(`${legacyPrefix}:${pid}`, meta);
+          }
         }
       }
       if (Array.isArray(parsed.nodes)) {
@@ -415,8 +476,16 @@ export class LiveBlockchainClient implements IBlockchainClient {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
+      if (this.lastSyncedBlock > 0n) {
+        this.lastSyncedBlocks.set(this.syncScopeKey, this.lastSyncedBlock);
+      }
+      const lastSyncedBlocksObj: Record<string, string> = {};
+      for (const [k, v] of this.lastSyncedBlocks.entries()) {
+        lastSyncedBlocksObj[k] = v.toString();
+      }
       const state: PersistedRelayerState = {
         lastSyncedBlock: this.lastSyncedBlock.toString(),
+        lastSyncedBlocks: lastSyncedBlocksObj,
         proposalMetadata: Object.fromEntries(this.proposalMetadataStore.entries()),
         ownerIndex: Object.fromEntries(this.ownerToAgent.entries()),
         seenVotes: Array.from(this.seenVotes),
@@ -527,6 +596,7 @@ export class LiveBlockchainClient implements IBlockchainClient {
     activity?: {
       votedProposalId?: bigint;
       createdProposalId?: bigint;
+      contentCidHash?: string;
       title?: string;
       description?: string;
       capabilities?: number;
@@ -537,7 +607,7 @@ export class LiveBlockchainClient implements IBlockchainClient {
     node.lastActivityAt = nowSec;
 
     if (activity?.votedProposalId !== undefined) {
-      const vKey = `${activity.votedProposalId.toString()}:${tokenId.toString()}`;
+      const vKey = this.scopeVoteKey(activity.votedProposalId, tokenId);
       if (!this.seenVotes.has(vKey)) {
         this.seenVotes.add(vKey);
         node.votesCount = (node.votesCount || 0) + 1;
@@ -545,7 +615,7 @@ export class LiveBlockchainClient implements IBlockchainClient {
     }
 
     if (activity?.createdProposalId !== undefined) {
-      const pKey = activity.createdProposalId.toString();
+      const pKey = this.scopeProposalKey(activity.createdProposalId);
       const prev = this.seenProposals.get(pKey);
       if (!prev || !prev.tokenId) {
         this.seenProposals.set(pKey, {
@@ -555,10 +625,14 @@ export class LiveBlockchainClient implements IBlockchainClient {
         node.proposalsCount = (node.proposalsCount || 0) + 1;
       }
       if (activity.title && activity.description) {
-        this.proposalMetadataStore.set(pKey, {
+        const metaEntry = {
           title: activity.title,
           description: activity.description,
-        });
+        };
+        this.proposalMetadataStore.set(pKey, metaEntry);
+        if (activity.contentCidHash) {
+          this.proposalMetadataStore.set(activity.contentCidHash.toLowerCase(), metaEntry);
+        }
       }
     }
 
@@ -707,7 +781,7 @@ export class LiveBlockchainClient implements IBlockchainClient {
           const tId = BigInt(log.args.tokenId);
           const voter = log.args.voter as `0x${string}`;
           const node = await this.ensureDiscoveredNode(tId, voter);
-          const voteKey = `${pId}:${tId}`;
+          const voteKey = this.scopeVoteKey(pId, tId);
           if (!this.seenVotes.has(voteKey)) {
             this.seenVotes.add(voteKey);
             node.votesCount = (node.votesCount || 0) + 1;
@@ -718,9 +792,16 @@ export class LiveBlockchainClient implements IBlockchainClient {
         for (const log of allPropLogs) {
           const pId = BigInt(log.args.proposalId);
           const creator = log.args.creator as `0x${string}`;
-          const pKey = pId.toString();
+          const pKey = this.scopeProposalKey(pId);
           const existingProp = this.seenProposals.get(pKey);
-          let creatorTokenId = existingProp?.tokenId || this.ownerToAgent.get(creator.toLowerCase())?.tokenId;
+          const validExistingTokenId =
+            existingProp?.tokenId &&
+            existingProp.creator?.toLowerCase() === creator.toLowerCase()
+              ? existingProp.tokenId
+              : undefined;
+          let creatorTokenId =
+            this.ownerToAgent.get(creator.toLowerCase())?.tokenId ||
+            validExistingTokenId;
 
           if (!creatorTokenId && log.transactionHash) {
             try {
@@ -734,11 +815,11 @@ export class LiveBlockchainClient implements IBlockchainClient {
 
           if (creatorTokenId) {
             const node = await this.ensureDiscoveredNode(BigInt(creatorTokenId), creator);
-            if (!existingProp || !existingProp.tokenId) {
+            if (!validExistingTokenId) {
               node.proposalsCount = (node.proposalsCount || 0) + 1;
             }
             this.seenProposals.set(pKey, { creator, tokenId: creatorTokenId });
-          } else if (!existingProp) {
+          } else if (!existingProp || existingProp.creator?.toLowerCase() !== creator.toLowerCase()) {
             this.seenProposals.set(pKey, { creator });
           }
         }
@@ -938,22 +1019,34 @@ export class LiveBlockchainClient implements IBlockchainClient {
       const creator = (Array.isArray(meta) ? meta[0] : meta.creator) as `0x${string}`;
       const categoryId = Number(Array.isArray(meta) ? meta[1] : meta.categoryId);
       const contentCidHash = (Array.isArray(meta) ? meta[2] : meta.contentCidHash) as `0x${string}`;
-      const legacyAddress = "0xd3061bEA5ad846d1e8aec3De18EAd4F5A53e305f";
-      const scopedKey = `${targetAddress.toLowerCase()}:${proposalId.toString()}`;
+      const scopedKey = this.scopeProposalKey(proposalId, targetAddress);
+      const isLegacyTarget =
+        targetAddress.toLowerCase() === LEGACY_PARLIAMENT_ADDRESS.toLowerCase();
 
       const metaText =
         this.proposalMetadataStore.get(contentCidHash?.toLowerCase?.() || "") ||
         this.proposalMetadataStore.get(scopedKey) ||
-        (targetAddress.toLowerCase() === legacyAddress.toLowerCase()
-          ? this.proposalMetadataStore.get(proposalId.toString())
-          : undefined);
+        (isLegacyTarget ? this.proposalMetadataStore.get(proposalId.toString()) : undefined);
 
-      const title = metaText?.title || `ACP-${String(proposalId).padStart(3, "0")}: Autonomous Governance Motion`;
-      const description = metaText?.description || `On-chain Parliament governance proposal (IPFS CID: ${contentCidHash}).`;
+      const displayAcpNum = isLegacyTarget
+        ? Number(proposalId)
+        : Number(proposalId) + this.legacyProposalCountOffset;
+      const title =
+        metaText?.title ||
+        `ACP-${String(displayAcpNum).padStart(3, "0")}: Autonomous Governance Motion`;
+      const description =
+        metaText?.description ||
+        `On-chain Parliament governance proposal (IPFS CID: ${contentCidHash}).`;
 
-      const seenProp = this.seenProposals.get(proposalId.toString());
+      const seenProp = this.seenProposals.get(scopedKey);
+      const validSeenTokenId =
+        seenProp?.tokenId &&
+        creator &&
+        seenProp.creator?.toLowerCase() === creator.toLowerCase()
+          ? seenProp.tokenId
+          : undefined;
       const agentByOwner = creator ? this.ownerToAgent.get(creator.toLowerCase()) : undefined;
-      const creatorTokenId = agentByOwner?.tokenId || seenProp?.tokenId;
+      const creatorTokenId = agentByOwner?.tokenId || validSeenTokenId;
       const creatorName =
         agentByOwner?.name ||
         (creatorTokenId ? this.knownNodes.get(creatorTokenId)?.name || this.tokenNames.get(creatorTokenId) : undefined);
@@ -1023,7 +1116,7 @@ export class LiveBlockchainClient implements IBlockchainClient {
   }
 
   async getLegacyProposals(): Promise<ProposalView[]> {
-    const legacyAddress = "0xd3061bEA5ad846d1e8aec3De18EAd4F5A53e305f" as const;
+    const legacyAddress = LEGACY_PARLIAMENT_ADDRESS as `0x${string}`;
     if (this.config.parliamentAddress.toLowerCase() === legacyAddress.toLowerCase()) {
       return [];
     }
@@ -1052,6 +1145,9 @@ export class LiveBlockchainClient implements IBlockchainClient {
         ids.map((id) => this.getProposal(id, true, currentBlock, legacyAddress))
       );
       const legacy = resolved.filter((p): p is ProposalView => p !== null);
+      if (legacy.length > 0) {
+        this.legacyProposalCountOffset = legacy.length;
+      }
 
       this.legacyProposalsCache = {
         data: legacy,
@@ -1177,6 +1273,7 @@ export class LiveBlockchainClient implements IBlockchainClient {
     if (proposalId !== 0n) {
       await this.registerDiscoveredAgent(tokenId, creator, {
         createdProposalId: proposalId,
+        contentCidHash,
         title: _title,
         description: _description,
       });
@@ -1246,6 +1343,42 @@ export class LiveBlockchainClient implements IBlockchainClient {
     ])) as [boolean, boolean, boolean];
 
     return { isMutual, hasPendingOutbound, hasPendingInbound };
+  }
+
+  async getPendingInboundPings(targetTokenId: bigint): Promise<bigint[]> {
+    await this.syncOnChainState().catch(() => {});
+    const targetStr = targetTokenId.toString();
+    const candidatePeers = new Set<string>();
+
+    for (const edge of this.knownEdges.values()) {
+      if (edge.isMutual) continue;
+      if (edge.nodeA === targetStr && edge.nodeB !== targetStr) {
+        candidatePeers.add(edge.nodeB);
+      } else if (edge.nodeB === targetStr && edge.nodeA !== targetStr) {
+        candidatePeers.add(edge.nodeA);
+      }
+    }
+
+    for (const node of this.knownNodes.values()) {
+      if (node.tokenId !== targetStr) {
+        candidatePeers.add(node.tokenId);
+      }
+    }
+
+    const pendingPeers: bigint[] = [];
+    await Promise.allSettled(
+      Array.from(candidatePeers).map(async (peerStr) => {
+        try {
+          const peerTid = BigInt(peerStr);
+          const status = await this.getMeshPairStatus(targetTokenId, peerTid);
+          if (!status.isMutual && status.hasPendingInbound) {
+            pendingPeers.push(peerTid);
+          }
+        } catch {}
+      })
+    );
+
+    return pendingPeers;
   }
 
   async pingReciprocal(
@@ -1893,6 +2026,24 @@ export class MockBlockchainClient implements IBlockchainClient {
       hasPendingOutbound: this.pendingPings.has(`${fromTokenId}:${toTokenId}`),
       hasPendingInbound: this.pendingPings.has(`${toTokenId}:${fromTokenId}`),
     };
+  }
+
+  async getPendingInboundPings(targetTokenId: bigint): Promise<bigint[]> {
+    const pendingPeers: bigint[] = [];
+    const targetSuffix = `:${targetTokenId}`;
+    for (const key of this.pendingPings.keys()) {
+      if (key.endsWith(targetSuffix)) {
+        const fromStr = key.slice(0, key.length - targetSuffix.length);
+        const fromTid = BigInt(fromStr);
+        if (fromTid !== targetTokenId) {
+          const status = await this.getMeshPairStatus(targetTokenId, fromTid);
+          if (!status.isMutual && status.hasPendingInbound) {
+            pendingPeers.push(fromTid);
+          }
+        }
+      }
+    }
+    return pendingPeers;
   }
 
   async pingReciprocal(

@@ -213,4 +213,116 @@ describe("Dynamic SPACE ID Name Resolution & Participant Discovery", () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("isolates persisted legacy v1 proposal #5 metadata/creator from active Parliament v2 proposal #5", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentcommons-scope-"));
+    const tempLedger = path.join(tempDir, "incentives-ledger.json");
+    const relayerStatePath = path.join(tempDir, "relayer-state.json");
+
+    const quriowsOwner = "0x0A3A282db09aeA91331BECbD69378F896F4611EB" as `0x${string}`;
+    const quriowsTokenId =
+      94008658654869435895174189513292946483561593550466137684044437412037196198397n;
+    const sakinOwner = "0x878d8E26Adc480546b6C98F9B48E538Eada8DB83" as `0x${string}`;
+    const sakinTokenId =
+      5168944616193656993191853454648616849477702221894748238587212403152782420443n;
+
+    // Seed legacy unscoped relayer-state.json where "5" belonged to quriows.ai on Parliament v1
+    fs.writeFileSync(
+      relayerStatePath,
+      JSON.stringify({
+        lastSyncedBlock: "999999999",
+        proposalMetadata: {
+          "5": {
+            title: "ACP-005: Legacy Quriows Proposal",
+            description: "Old v1 proposal description",
+          },
+        },
+        seenProposals: {
+          "5": {
+            creator: quriowsOwner,
+            tokenId: quriowsTokenId.toString(),
+          },
+        },
+        nodes: [
+          {
+            tokenId: quriowsTokenId.toString(),
+            name: "quriows.ai",
+            owner: quriowsOwner,
+            totalConnections: 1,
+            capabilities: 7,
+            isGenesis: false,
+          },
+          {
+            tokenId: sakinTokenId.toString(),
+            name: "sakin.ai",
+            owner: sakinOwner,
+            totalConnections: 0,
+            capabilities: 7,
+            isGenesis: false,
+          },
+        ],
+        ownerIndex: {
+          [quriowsOwner.toLowerCase()]: { tokenId: quriowsTokenId.toString(), name: "quriows.ai" },
+          [sakinOwner.toLowerCase()]: { tokenId: sakinTokenId.toString(), name: "sakin.ai" },
+        },
+      }),
+      "utf8"
+    );
+
+    try {
+      const cfg = {
+        ...defaultConfig,
+        mockMode: false,
+        parliamentAddress: "0xc1Bd22eC6e5454bf34fEe4547546159ce10FCC82" as `0x${string}`,
+        incentiveLedgerPath: tempLedger,
+      };
+      const client = new LiveBlockchainClient(cfg) as any;
+
+      client.publicClient = {
+        getBlockNumber: async () => 136000000n,
+        readContract: async ({ address, functionName, args }: any) => {
+          if (functionName === "ownerOf") {
+            if (BigInt(args[0]) === cfg.scarletTokenId) return "0xB57D6F0D2BD80B086Eb037a11fb2eDB9DC149c43";
+            if (BigInt(args[0]) === sakinTokenId) return sakinOwner;
+            if (BigInt(args[0]) === quriowsTokenId) return quriowsOwner;
+          }
+          if (functionName === "proposals") {
+            return [135900000, 147420000, 135899999, 0, 0, 0, 1, 1795603500];
+          }
+          if (functionName === "proposalMetas") {
+            const isLegacy =
+              String(address).toLowerCase() === "0xd3061bea5ad846d1e8aec3de18ead4f5a53e305f";
+            return [
+              isLegacy ? quriowsOwner : sakinOwner,
+              0,
+              keccak256(toHex(isLegacy ? "legacy-5" : "sakin-v2-5")),
+            ];
+          }
+          return 0n;
+        },
+        getLogs: async () => [],
+      };
+      client.logClients = [client.publicClient];
+
+      const v2Prop5 = await client.getProposal(5n, true, 136000000);
+      expect(v2Prop5).not.toBeNull();
+      expect(v2Prop5.creator).toBe(sakinOwner);
+      expect(v2Prop5.creatorName).toBe("sakin.ai");
+      expect(v2Prop5.creatorTokenId).toBe(sakinTokenId.toString());
+      expect(v2Prop5.title).toBe("ACP-011: Autonomous Governance Motion");
+
+      const legacyProp5 = await client.getProposal(
+        5n,
+        true,
+        136000000,
+        "0xd3061bEA5ad846d1e8aec3De18EAd4F5A53e305f"
+      );
+      expect(legacyProp5).not.toBeNull();
+      expect(legacyProp5.creator).toBe(quriowsOwner);
+      expect(legacyProp5.creatorName).toBe("quriows.ai");
+      expect(legacyProp5.title).toBe("ACP-005: Legacy Quriows Proposal");
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });

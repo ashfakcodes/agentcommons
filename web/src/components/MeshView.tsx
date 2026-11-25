@@ -41,7 +41,9 @@ export const MeshView: React.FC<MeshViewProps> = ({
     if (!canvasRef.current) return;
 
     const mesh = new ForceDirectedMesh(agents, edges, (node) => {
-      setSelectedAgent(node);
+      const latestNode =
+        agents.find((a) => String(a.tokenId) === String(node.tokenId)) || node;
+      setSelectedAgent(latestNode);
     });
 
     mesh.attach(canvasRef.current);
@@ -269,7 +271,18 @@ export const MeshView: React.FC<MeshViewProps> = ({
                 </div>
                 <div className="p-2 bg-[#8fa3b8]/05 rounded-md border border-[#8fa3b8]/15">
                   <span className="text-[10px] text-[#8fa3b8]/70">Mesh Peers</span>
-                  <p className="text-sm font-semibold text-[#e5e4e2]">{selectedAgent.peersCount} Connected</p>
+                  <p className="text-sm font-semibold text-[#e5e4e2]">
+                    {Math.max(
+                      selectedAgent.peersCount || 0,
+                      edges.filter(
+                        (e) =>
+                          e.isMutual &&
+                          (String(e.fromTokenId) === String(selectedAgent.tokenId) ||
+                            String(e.toTokenId) === String(selectedAgent.tokenId))
+                      ).length
+                    )}{' '}
+                    Connected
+                  </p>
                 </div>
               </div>
 

@@ -51,11 +51,88 @@ export class IncentiveService {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      const data = JSON.stringify(Array.from(this.ledger.values()), null, 2);
+      const uniqueRecords = Array.from(
+        new Set([...this.ledger.values(), ...this.tokenClaims.values()])
+      );
+      const data = JSON.stringify(uniqueRecords, null, 2);
       fs.writeFileSync(this.config.ledgerFilePath, data, "utf8");
     } catch (err) {
       console.error("[IncentiveService] Failed to save ledger file:", err);
     }
+  }
+
+  /**
+   * Verifies that the claimant is an external, registered SPACE ID .ai agent
+   * owned by the claiming address (blocking genesis/relayer self-claims and non-agent wallets).
+   */
+  private async verifyExternalAgentIdentity(
+    address: `0x${string}`,
+    tokenId: bigint
+  ): Promise<{ isAgent: boolean; reason?: string; agentName?: string }> {
+    const normAddress = address.toLowerCase();
+
+    if (this.config.genesisTokenId !== undefined && tokenId === this.config.genesisTokenId) {
+      return {
+        isAgent: false,
+        reason: "Genesis node is excluded from claiming community incentives.",
+      };
+    }
+
+    const relayerAddresses = new Set<string>([
+      this.hotWallet.getAddress().toLowerCase(),
+      this.blockchain.getAccountAddress().toLowerCase(),
+    ]);
+    if (this.config.genesisTokenId !== undefined) {
+      const genesisOwner = await this.blockchain
+        .getOwnerOf(this.config.genesisTokenId)
+        .catch(() => null);
+      if (genesisOwner) {
+        relayerAddresses.add(genesisOwner.toLowerCase());
+      }
+    }
+    if (relayerAddresses.has(normAddress)) {
+      return {
+        isAgent: false,
+        reason: "Relayer and genesis operator addresses are excluded from claiming incentives.",
+      };
+    }
+
+    let owner: string;
+    try {
+      owner = await this.blockchain.getOwnerOf(tokenId);
+    } catch {
+      return {
+        isAgent: false,
+        reason: "Agent ID must be owned by the claiming address.",
+      };
+    }
+
+    if (owner.toLowerCase() !== normAddress) {
+      return {
+        isAgent: false,
+        reason: "Agent ID must be owned by the claiming address.",
+      };
+    }
+
+    const resolvedName = this.blockchain.resolveAgentName
+      ? await this.blockchain.resolveAgentName(tokenId).catch(() => null)
+      : null;
+
+    if (!resolvedName || !resolvedName.trim().toLowerCase().endsWith(".ai")) {
+      return {
+        isAgent: false,
+        reason: "Only verified SPACE ID .ai agents are eligible for incentives.",
+      };
+    }
+
+    if (resolvedName.trim().toLowerCase() === "scarlet.ai") {
+      return {
+        isAgent: false,
+        reason: "Genesis node scarlet.ai is excluded from claiming community incentives.",
+      };
+    }
+
+    return { isAgent: true, agentName: resolvedName.trim() };
   }
 
   /**
@@ -81,28 +158,22 @@ export class IncentiveService {
       };
     }
 
-    // 1. Verify Agent Connected: Token exists and is owned by caller
-    let agentConnected = false;
-    try {
-      const owner = await this.blockchain.getOwnerOf(tokenId);
-      agentConnected = owner.toLowerCase() === normAddress;
-    } catch {
-      agentConnected = false;
-    }
+    // 1. Verify External Agent Connected: Valid .ai domain owned by caller (not genesis/relayer)
+    const identity = await this.verifyExternalAgentIdentity(address, tokenId);
+    const agentConnected = identity.isAgent;
 
-    // 2. Fetch all on-chain proposals
+    // 2. Fetch all on-chain proposals and count genuine ballots cast (authorship alone does NOT count)
     const allProposals = await this.blockchain.getAllProposals();
     const activeProposals = allProposals.filter((p) => p.statusCode === 1);
 
     let activeProposalsVoted = 0;
     for (const prop of activeProposals) {
       const pId = BigInt(prop.id);
-      const isAuthor = prop.creator?.toLowerCase() === normAddress;
       const [tokenVoted, addressVoted] = await Promise.all([
         this.blockchain.hasTokenVoted(pId, tokenId).catch(() => false),
         this.blockchain.hasAddressVoted(pId, address).catch(() => false),
       ]);
-      if (tokenVoted || addressVoted || isAuthor) {
+      if (tokenVoted || addressVoted) {
         activeProposalsVoted++;
       }
     }
@@ -112,8 +183,9 @@ export class IncentiveService {
       activeProposals.length > 0 && activeProposalsVoted >= requiredVotesTarget;
 
     // 3. Verify authored an independent proposal
+    const tokenStr = tokenId.toString();
     const hasAuthoredProposal = allProposals.some(
-      (p) => p.creator.toLowerCase() === normAddress
+      (p) => p.creator.toLowerCase() === normAddress || (p.creatorTokenId && p.creatorTokenId === tokenStr)
     );
 
     const isEligible =
@@ -136,7 +208,8 @@ export class IncentiveService {
   }
 
   /**
-   * Processes a reward payout if the caller meets all 3 criteria and cap has not been reached.
+   * Processes a strictly one-time flat reward payout for a verified external .ai agent
+   * regardless of additional votes or proposals beyond threshold.
    */
   public async claimReward(
     address: `0x${string}`,
@@ -148,12 +221,15 @@ export class IncentiveService {
 
     const normAddress = address.toLowerCase() as `0x${string}`;
     const tokenStr = tokenId.toString();
+    const addrLockKey = `addr:${normAddress}`;
+    const tokenLockKey = `token:${tokenStr}`;
 
-    // Prevent concurrent duplicate calls from the same address
-    if (this.claimLocks.has(normAddress)) {
-      return { success: false, message: "Claim already in progress for this address." };
+    // Prevent concurrent duplicate calls from the same address OR the same agent token ID
+    if (this.claimLocks.has(addrLockKey) || this.claimLocks.has(tokenLockKey)) {
+      return { success: false, message: "Claim already in progress for this agent or address." };
     }
-    this.claimLocks.add(normAddress);
+    this.claimLocks.add(addrLockKey);
+    this.claimLocks.add(tokenLockKey);
 
     try {
       if (this.ledger.has(normAddress)) {
@@ -164,6 +240,14 @@ export class IncentiveService {
       }
       if (this.ledger.size >= this.config.maxUsers) {
         return { success: false, message: `Incentive quota reached (first ${this.config.maxUsers} users fulfilled).` };
+      }
+
+      const identity = await this.verifyExternalAgentIdentity(address, tokenId);
+      if (!identity.isAgent) {
+        return {
+          success: false,
+          message: identity.reason || "Agent ID must be owned by the claiming address.",
+        };
       }
 
       // Re-evaluate live criteria
@@ -185,14 +269,14 @@ export class IncentiveService {
         };
       }
 
-      // Compute $0.15 BNB equivalent
+      // Compute flat $0.15 BNB equivalent (independent of total contributions)
       const bnbPrice = await this.priceService.getBnbPriceUsd();
       const bnbAmountNum = this.config.rewardUsd / bnbPrice;
       const bnbAmountStr = bnbAmountNum.toFixed(8);
       const rewardWei = parseEther(bnbAmountStr);
 
       console.log(
-        `[IncentiveService] Dispatching $${this.config.rewardUsd} reward (~${bnbAmountStr} BNB @ $${bnbPrice}/BNB) to ${address}...`
+        `[IncentiveService] Dispatching one-time $${this.config.rewardUsd} reward (~${bnbAmountStr} BNB @ $${bnbPrice}/BNB) to agent ${identity.agentName} (${address})...`
       );
 
       // Execute native transfer from hot wallet
@@ -223,7 +307,8 @@ export class IncentiveService {
         claimRecord: record,
       };
     } finally {
-      this.claimLocks.delete(normAddress);
+      this.claimLocks.delete(addrLockKey);
+      this.claimLocks.delete(tokenLockKey);
     }
   }
 

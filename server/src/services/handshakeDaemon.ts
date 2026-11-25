@@ -4,6 +4,7 @@ import { IBlockchainClient } from "./blockchain.js";
 
 export class HandshakeDaemon extends EventEmitter {
   private unsubscribe?: () => void;
+  private reconcileTimer: NodeJS.Timeout | null = null;
   private isRunning = false;
   private inFlight = new Set<string>();
   private reciprocationQueue: Array<{
@@ -27,6 +28,52 @@ export class HandshakeDaemon extends EventEmitter {
     super();
   }
 
+  private enqueueReciprocation(fromTokenId: bigint, timestamp: number): void {
+    if (fromTokenId === this.config.scarletTokenId) return;
+
+    const peerKey = fromTokenId.toString();
+    if (this.inFlight.has(peerKey)) {
+      console.log(
+        `[HandshakeDaemon] Reciprocation already in-flight for Agent ID #${fromTokenId}, skipping duplicate.`
+      );
+      return;
+    }
+
+    console.log(
+      `[HandshakeDaemon] Inbound handshake ping from Agent ID #${fromTokenId} at ${timestamp}. Queueing reciprocation...`
+    );
+
+    this.inFlight.add(peerKey);
+    this.reciprocationQueue.push({
+      fromTokenId,
+      timestamp,
+      retries: 0,
+    });
+
+    this.processQueue().catch((err) => {
+      console.error("[HandshakeDaemon] Queue processor error:", err);
+    });
+  }
+
+  /**
+   * Reconciles unreciprocated on-chain pings targeting scarlet.ai that may have
+   * been missed during restarts or log watch gaps.
+   */
+  public async reconcilePendingPings(): Promise<void> {
+    if (!this.isRunning || !this.blockchain.getPendingInboundPings) return;
+
+    const pendingPeers = await this.blockchain
+      .getPendingInboundPings(this.config.scarletTokenId)
+      .catch(() => []);
+
+    for (const peerTokenId of pendingPeers) {
+      if (peerTokenId === this.config.scarletTokenId) continue;
+      if (this.inFlight.has(peerTokenId.toString())) continue;
+      this.stats.totalPingsObserved++;
+      this.enqueueReciprocation(peerTokenId, Math.floor(Date.now() / 1000));
+    }
+  }
+
   public start(): void {
     if (this.isRunning) return;
     this.isRunning = true;
@@ -43,30 +90,18 @@ export class HandshakeDaemon extends EventEmitter {
         if (fromTokenId === this.config.scarletTokenId) return;
         if (toTokenId !== this.config.scarletTokenId) return;
 
-        const peerKey = fromTokenId.toString();
-        if (this.inFlight.has(peerKey)) {
-          console.log(
-            `[HandshakeDaemon] Reciprocation already in-flight for Agent ID #${fromTokenId}, skipping duplicate.`
-          );
-          return;
-        }
-
-        console.log(
-          `[HandshakeDaemon] Inbound handshake ping from Agent ID #${fromTokenId} at ${timestamp}. Queueing reciprocation...`
-        );
-
-        this.inFlight.add(peerKey);
-        this.reciprocationQueue.push({
-          fromTokenId,
-          timestamp,
-          retries: 0,
-        });
-
-        this.processQueue().catch((err) => {
-          console.error("[HandshakeDaemon] Queue processor error:", err);
-        });
+        this.enqueueReciprocation(fromTokenId, timestamp);
       }
     );
+
+    // Sweep existing pending inbound pings at startup (and periodically in live mode)
+    void this.reconcilePendingPings().catch(() => {});
+    if (!this.blockchain.isMock) {
+      this.reconcileTimer = setInterval(() => {
+        void this.reconcilePendingPings().catch(() => {});
+      }, 60_000);
+      this.reconcileTimer.unref?.();
+    }
   }
 
   private async processQueue(): Promise<void> {
@@ -132,6 +167,10 @@ export class HandshakeDaemon extends EventEmitter {
     this.isRunning = false;
     this.reciprocationQueue = [];
     this.inFlight.clear();
+    if (this.reconcileTimer) {
+      clearInterval(this.reconcileTimer);
+      this.reconcileTimer = null;
+    }
     if (this.unsubscribe) {
       this.unsubscribe();
       this.unsubscribe = undefined;

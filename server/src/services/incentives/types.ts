@@ -4,6 +4,7 @@ export interface IncentiveConfig {
   rewardUsd: number;
   fallbackBnbPrice: number;
   ledgerFilePath: string;
+  genesisTokenId?: bigint;
 }
 
 export interface IncentiveClaimRecord {

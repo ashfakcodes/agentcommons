@@ -190,6 +190,83 @@ describe("User Incentive Program Module", () => {
       const secondClaim = await incentiveService.claimReward(testUserAddress, testTokenId);
       expect(secondClaim.success).toBe(false);
       expect(secondClaim.message).toContain("already claimed");
+
+      // Extra contributions (more proposals + more votes) or transferring token to a new wallet still blocks repeat claim
+      const extraNonce = await mockClient.getNonces(testTokenId);
+      const extraProp = await mockClient.createProposalBySig(
+        testUserAddress,
+        testTokenId,
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as `0x${string}`,
+        28800,
+        1,
+        extraNonce,
+        BigInt(Math.floor(Date.now() / 1000) + 3600),
+        "0xabcdef" as `0x${string}`,
+        "Alice's Second Motion",
+        "Follow up governance improvement proposal"
+      );
+      await mockClient.castVotesBatch(
+        extraProp.proposalId,
+        [testTokenId],
+        [1],
+        [BigInt(Math.floor(Date.now() / 1000) + 3600)],
+        ["0x9999" as `0x${string}`]
+      );
+
+      const repeatAfterMoreContrib = await incentiveService.claimReward(testUserAddress, testTokenId);
+      expect(repeatAfterMoreContrib.success).toBe(false);
+
+      // Even if same tokenId is transferred to another wallet, token ID stays one-time locked
+      const newOwner = "0x8888888888888888888888888888888888888888" as `0x${string}`;
+      mockClient.setMockTokenOwner(testTokenId, newOwner, "alice.ai");
+      const transferredClaim = await incentiveService.claimReward(newOwner, testTokenId);
+      expect(transferredClaim.success).toBe(false);
+      expect(transferredClaim.message).toContain("Token ID has already been rewarded");
+    });
+
+    it("should reject genesis/relayer node self-claims, non-.ai identities, and authorship-only without votes", async () => {
+      const incentiveService = serverInstance.incentiveService!;
+
+      // 1. Genesis node / relayer owner must be blocked even if authoring proposals
+      const genesisClaim = await incentiveService.claimReward(
+        mockClient.getAccountAddress(),
+        serverInstance.config.scarletTokenId
+      );
+      expect(genesisClaim.success).toBe(false);
+      expect(genesisClaim.message).toContain("Genesis node is excluded");
+
+      // 2. Non-.ai domain identity must be blocked
+      const nonAiAddr = "0x4444444444444444444444444444444444444444" as `0x${string}`;
+      mockClient.setMockTokenOwner(500n, nonAiAddr, "human-wallet.eth");
+      const nonAiStatus = await incentiveService.getStatus(nonAiAddr, 500n);
+      expect(nonAiStatus.criteria.agentConnected).toBe(false);
+      const nonAiClaim = await incentiveService.claimReward(nonAiAddr, 500n);
+      expect(nonAiClaim.success).toBe(false);
+      expect(nonAiClaim.message).toContain(".ai agents");
+
+      // 3. Authoring 3 proposals WITHOUT casting real votes must NOT satisfy vote threshold
+      const proposerOnlyAddr = "0x5555555555555555555555555555555555555555" as `0x${string}`;
+      mockClient.setMockTokenOwner(501n, proposerOnlyAddr, "spammer.ai");
+      for (let i = 0; i < 3; i++) {
+        const nonce = await mockClient.getNonces(501n);
+        await mockClient.createProposalBySig(
+          proposerOnlyAddr,
+          501n,
+          `0x${String(i + 1).repeat(64)}` as `0x${string}`,
+          28800,
+          0,
+          nonce,
+          BigInt(Math.floor(Date.now() / 1000) + 3600),
+          "0x1234" as `0x${string}`,
+          `Authored Only ${i + 1}`,
+          "Testing that authorship never counts as casting a vote."
+        );
+      }
+      const authorOnlyStatus = await incentiveService.getStatus(proposerOnlyAddr, 501n);
+      expect(authorOnlyStatus.criteria.hasAuthoredProposal).toBe(true);
+      expect(authorOnlyStatus.criteria.activeProposalsVoted).toBe(0);
+      expect(authorOnlyStatus.criteria.allActiveProposalsVoted).toBe(false);
+      expect(authorOnlyStatus.criteria.isEligible).toBe(false);
     });
 
     it("should enforce the maximum users cap", async () => {

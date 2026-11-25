@@ -83,4 +83,25 @@ describe("HandshakeDaemon", () => {
 
     daemon.stop();
   });
+
+  it("should reconcile pending inbound pings targeting scarlet.ai that arrived before daemon startup", async () => {
+    const mockBlockchain = new MockBlockchainClient(config);
+    const peerId = 44n;
+
+    // Peer pings scarlet.ai BEFORE HandshakeDaemon starts (simulating restart gap)
+    await mockBlockchain.pingReciprocal(peerId, config.scarletTokenId, 31);
+
+    const daemon = new HandshakeDaemon(config, mockBlockchain);
+    daemon.start();
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    expect(daemon.stats.totalHandshakesReciprocated).toBe(1);
+    expect(daemon.stats.lastReciprocatedTokenId).toBe(peerId);
+
+    const status = await mockBlockchain.getMeshPairStatus(config.scarletTokenId, peerId);
+    expect(status.isMutual).toBe(true);
+
+    daemon.stop();
+  });
 });
