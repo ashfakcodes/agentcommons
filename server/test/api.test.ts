@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import express from "express";
 import request from "supertest";
+import { decodeFunctionData } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { createServer, ServerInstance } from "../src/app.js";
+import { config as defaultConfig } from "../src/config.js";
+import { MeshAbi } from "../src/abi/mesh.js";
+import { createMeshRouter } from "../src/routes/mesh.js";
+import { MockBlockchainClient } from "../src/services/blockchain.js";
 import { ballotTypes } from "../src/services/eip712.js";
 
 describe("AgentCommons Relayer REST API", () => {
@@ -201,5 +207,104 @@ describe("AgentCommons Relayer REST API", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(instance.handshakeDaemon.stats.totalHandshakesReciprocated).toBeGreaterThanOrEqual(1);
+  });
+
+  describe("POST /api/v1/mesh/ping live-mode pre-flight guards", () => {
+    function createLiveMeshTestApp() {
+      const mockClient = new MockBlockchainClient(defaultConfig);
+      // Expose live-mode routing branch on createMeshRouter while keeping deterministic mock state
+      const liveLikeClient = Object.create(mockClient) as MockBlockchainClient & {
+        isMock: boolean;
+      };
+      Object.defineProperty(liveLikeClient, "isMock", { value: false });
+
+      const app = express();
+      app.use(express.json());
+      app.use("/api/v1/mesh", createMeshRouter(defaultConfig, liveLikeClient));
+      return { app, mockClient };
+    }
+
+    it("rejects self-handshake with 400 SELF_HANDSHAKE_FORBIDDEN", async () => {
+      const { app } = createLiveMeshTestApp();
+      const res = await request(app)
+        .post("/api/v1/mesh/ping")
+        .send({ fromTokenId: "40", toTokenId: "40", capabilities: 31 });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("SELF_HANDSHAKE_FORBIDDEN");
+    });
+
+    it("returns 403 DIRECT_TX_REQUIRED with valid ping() and setMeshOperator() calldata for un-delegated external agent", async () => {
+      const { app } = createLiveMeshTestApp();
+      const scarletId = defaultConfig.scarletTokenId.toString();
+
+      const res = await request(app)
+        .post("/api/v1/mesh/ping")
+        .send({ fromTokenId: "40", toTokenId: scarletId, capabilities: 31 });
+
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe("DIRECT_TX_REQUIRED");
+      expect(res.body.meshContract).toBe(defaultConfig.meshAddress);
+      expect(res.body.chainId).toBe(defaultConfig.chainId);
+
+      const decodedPing = decodeFunctionData({
+        abi: MeshAbi,
+        data: res.body.directTransaction.data,
+      });
+      expect(decodedPing.functionName).toBe("ping");
+      expect(decodedPing.args).toEqual([40n, defaultConfig.scarletTokenId, 31]);
+
+      const decodedOp = decodeFunctionData({
+        abi: MeshAbi,
+        data: res.body.optionalDelegationTransaction.data,
+      });
+      expect(decodedOp.functionName).toBe("setMeshOperator");
+      expect(decodedOp.args?.[0]).toBe(40n);
+      expect((decodedOp.args?.[1] as string).toLowerCase()).toBe(
+        res.body.relayerAddress.toLowerCase()
+      );
+    });
+
+    it("broadcasts ping when external agent has delegated meshOperator to relayer", async () => {
+      const { app, mockClient } = createLiveMeshTestApp();
+      mockClient.setMockMeshOperator(41n, mockClient.getAccountAddress());
+
+      const res = await request(app)
+        .post("/api/v1/mesh/ping")
+        .send({
+          fromTokenId: "41",
+          toTokenId: defaultConfig.scarletTokenId.toString(),
+          capabilities: 31,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("ping_broadcast");
+      expect(res.body.txHash).toMatch(/^0x/);
+
+      // Second ping while first is pending should be blocked cleanly with 409
+      const dupRes = await request(app)
+        .post("/api/v1/mesh/ping")
+        .send({
+          fromTokenId: "41",
+          toTokenId: defaultConfig.scarletTokenId.toString(),
+          capabilities: 31,
+        });
+      expect(dupRes.status).toBe(409);
+      expect(dupRes.body.code).toBe("PING_ALREADY_PENDING");
+    });
+
+    it("returns 409 ALREADY_MUTUALLY_CONNECTED when edge is already mutual", async () => {
+      const { app } = createLiveMeshTestApp();
+      const res = await request(app)
+        .post("/api/v1/mesh/ping")
+        .send({
+          fromTokenId: "1",
+          toTokenId: defaultConfig.scarletTokenId.toString(),
+          capabilities: 1,
+        });
+
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe("ALREADY_MUTUALLY_CONNECTED");
+    });
   });
 });

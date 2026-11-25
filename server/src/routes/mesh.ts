@@ -1,5 +1,7 @@
 import { Router, Request, Response } from "express";
+import { encodeFunctionData } from "viem";
 import { ServerConfig } from "../config.js";
+import { MeshAbi } from "../abi/mesh.js";
 import { IBlockchainClient } from "../services/blockchain.js";
 import { MeshTopology } from "../types/index.js";
 
@@ -79,23 +81,52 @@ export function createMeshRouter(
 
   /**
    * POST /api/v1/mesh/ping
-   * Sends or simulates an outbound or inbound ping.
+   * Sends or simulates an outbound or inbound ping, or returns direct-tx calldata
+   * when the relayer is not authorized for `fromTokenId`.
    */
   router.post("/ping", async (req: Request, res: Response): Promise<void> => {
     try {
       const { fromTokenId, toTokenId, capabilities } = req.body;
 
-      if (!fromTokenId || !toTokenId) {
+      if (fromTokenId === undefined || fromTokenId === null || toTokenId === undefined || toTokenId === null || fromTokenId === "" || toTokenId === "") {
         res.status(400).json({
           error: "Missing required fields: fromTokenId, toTokenId",
+          code: "MISSING_FIELDS",
         });
         return;
       }
 
-      const from = BigInt(fromTokenId);
-      const to = BigInt(toTokenId);
+      let from: bigint;
+      let to: bigint;
+      try {
+        from = BigInt(fromTokenId);
+        to = BigInt(toTokenId);
+      } catch {
+        res.status(400).json({
+          error: "Invalid token ID format; expected integer token IDs",
+          code: "INVALID_TOKEN_ID",
+        });
+        return;
+      }
 
-      // In mock mode, if ping is targeting scarlet.ai, trigger simulateInboundPing
+      if (from === to) {
+        res.status(400).json({
+          error: "Self-handshake is forbidden (fromTokenId cannot equal toTokenId)",
+          code: "SELF_HANDSHAKE_FORBIDDEN",
+        });
+        return;
+      }
+
+      const cap = capabilities === undefined || capabilities === null ? 1 : Number(capabilities);
+      if (!Number.isInteger(cap) || cap < 0 || cap > 65535) {
+        res.status(400).json({
+          error: "Invalid capabilities bitmask; expected uint16 integer (0..65535)",
+          code: "INVALID_CAPABILITIES",
+        });
+        return;
+      }
+
+      // In mock mode, trigger simulateInboundPing so HandshakeDaemon tests exercise reciprocation
       if (blockchain.isMock && blockchain.simulateInboundPing) {
         blockchain.simulateInboundPing(from, to);
         res.json({
@@ -107,8 +138,68 @@ export function createMeshRouter(
         return;
       }
 
-      // If called in live mode or normal execution
-      const txHash = await blockchain.pingReciprocal(from, to, capabilities || 1);
+      // Pre-flight edge status check to avoid doomed on-chain reverts
+      const pairStatus = await blockchain.getMeshPairStatus(from, to);
+      if (pairStatus.isMutual) {
+        res.status(409).json({
+          error: "Agents are already mutually connected in the Citizen Mesh",
+          code: "ALREADY_MUTUALLY_CONNECTED",
+          fromTokenId: from.toString(),
+          toTokenId: to.toString(),
+        });
+        return;
+      }
+      if (pairStatus.hasPendingOutbound) {
+        res.status(409).json({
+          error: "Outbound handshake ping is already pending for this peer",
+          code: "PING_ALREADY_PENDING",
+          fromTokenId: from.toString(),
+          toTokenId: to.toString(),
+        });
+        return;
+      }
+
+      // Check whether the relayer hot wallet is authorized to call ping(from, ...) on-chain
+      const authorized = await blockchain.isMeshAuthorized(from);
+      if (!authorized) {
+        const relayerAddress = blockchain.getAccountAddress();
+        const pingData = encodeFunctionData({
+          abi: MeshAbi,
+          functionName: "ping",
+          args: [from, to, cap],
+        });
+        const setOperatorData = encodeFunctionData({
+          abi: MeshAbi,
+          functionName: "setMeshOperator",
+          args: [from, relayerAddress],
+        });
+
+        res.status(403).json({
+          error: `Relayer (${relayerAddress}) is not owner or delegated meshOperator for Agent ID #${from}. Broadcast ping() directly from your token owner wallet or delegate via setMeshOperator() first.`,
+          code: "DIRECT_TX_REQUIRED",
+          fromTokenId: from.toString(),
+          toTokenId: to.toString(),
+          capabilities: cap,
+          relayerAddress,
+          meshContract: config.meshAddress,
+          chainId: config.chainId,
+          directTransaction: {
+            to: config.meshAddress,
+            chainId: config.chainId,
+            function: "ping(uint256,uint256,uint16)",
+            data: pingData,
+          },
+          optionalDelegationTransaction: {
+            to: config.meshAddress,
+            chainId: config.chainId,
+            function: "setMeshOperator(uint256,address)",
+            data: setOperatorData,
+          },
+        });
+        return;
+      }
+
+      const txHash = await blockchain.pingReciprocal(from, to, cap);
       res.json({
         status: "ping_broadcast",
         txHash,

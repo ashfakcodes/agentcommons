@@ -59,6 +59,15 @@ export interface IBlockchainClient {
     title?: string,
     description?: string
   ): Promise<{ proposalId: bigint; txHash: `0x${string}` }>;
+  isMeshAuthorized(tokenId: bigint): Promise<boolean>;
+  getMeshPairStatus(
+    fromTokenId: bigint,
+    toTokenId: bigint
+  ): Promise<{
+    isMutual: boolean;
+    hasPendingOutbound: boolean;
+    hasPendingInbound: boolean;
+  }>;
   pingReciprocal(
     fromTokenId: bigint,
     toTokenId: bigint,
@@ -1027,6 +1036,64 @@ export class LiveBlockchainClient implements IBlockchainClient {
     };
   }
 
+  async isMeshAuthorized(tokenId: bigint): Promise<boolean> {
+    if (tokenId === this.config.scarletTokenId) {
+      return true;
+    }
+    const relayerAddress = this.getAccountAddress().toLowerCase();
+    const [owner, operator] = await Promise.all([
+      this.getOwnerOf(tokenId).catch(() => null),
+      this.publicClient
+        .readContract({
+          address: this.config.meshAddress,
+          abi: MeshAbi,
+          functionName: "meshOperators",
+          args: [tokenId],
+        })
+        .catch(() => null) as Promise<`0x${string}` | null>,
+    ]);
+
+    if (owner && owner.toLowerCase() === relayerAddress) {
+      return true;
+    }
+    if (operator && operator.toLowerCase() === relayerAddress) {
+      return true;
+    }
+    return false;
+  }
+
+  async getMeshPairStatus(
+    fromTokenId: bigint,
+    toTokenId: bigint
+  ): Promise<{
+    isMutual: boolean;
+    hasPendingOutbound: boolean;
+    hasPendingInbound: boolean;
+  }> {
+    const [isMutual, hasPendingOutbound, hasPendingInbound] = (await Promise.all([
+      this.publicClient.readContract({
+        address: this.config.meshAddress,
+        abi: MeshAbi,
+        functionName: "isEdgeConnected",
+        args: [fromTokenId, toTokenId],
+      }),
+      this.publicClient.readContract({
+        address: this.config.meshAddress,
+        abi: MeshAbi,
+        functionName: "hasPendingPing",
+        args: [fromTokenId, toTokenId],
+      }),
+      this.publicClient.readContract({
+        address: this.config.meshAddress,
+        abi: MeshAbi,
+        functionName: "hasPendingPing",
+        args: [toTokenId, fromTokenId],
+      }),
+    ])) as [boolean, boolean, boolean];
+
+    return { isMutual, hasPendingOutbound, hasPendingInbound };
+  }
+
   async pingReciprocal(
     fromTokenId: bigint,
     toTokenId: bigint,
@@ -1039,15 +1106,35 @@ export class LiveBlockchainClient implements IBlockchainClient {
       args: [fromTokenId, toTokenId, capabilities],
     });
 
+    const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
+    let isMutual = false;
+
+    for (const log of receipt.logs) {
+      try {
+        if (log.address.toLowerCase() === this.config.meshAddress.toLowerCase()) {
+          const decoded = decodeEventLog({
+            abi: MeshAbi,
+            data: log.data,
+            topics: log.topics,
+          });
+          if (decoded.eventName === "MutualHandshakeCompleted") {
+            isMutual = true;
+            break;
+          }
+        }
+      } catch {}
+    }
+
     const minTid = fromTokenId < toTokenId ? fromTokenId : toTokenId;
     const maxTid = fromTokenId < toTokenId ? toTokenId : fromTokenId;
     const edgeKey = keccak256(encodePacked(["uint256", "uint256"], [minTid, maxTid]));
+    const prevEdge = this.knownEdges.get(edgeKey);
 
     this.knownEdges.set(edgeKey, {
       edgeKey,
       nodeA: minTid.toString(),
       nodeB: maxTid.toString(),
-      isMutual: true,
+      isMutual: isMutual || Boolean(prevEdge?.isMutual),
       capabilityMask: capabilities,
       establishedAt: Math.floor(Date.now() / 1000),
     });
@@ -1170,6 +1257,7 @@ export class MockBlockchainClient implements IBlockchainClient {
   private edges = new Map<string, MeshEdge>();
   private pendingPings = new Map<string, number>(); // key: `${from}:${to}`
   private totalConnections = new Map<bigint, number>();
+  private meshOperators = new Map<bigint, `0x${string}`>();
 
   constructor(private config: ServerConfig) {
     this.hotWallet = new HotWalletManager(config);
@@ -1617,6 +1705,39 @@ export class MockBlockchainClient implements IBlockchainClient {
     return {
       proposalId: newId,
       txHash,
+    };
+  }
+
+  setMockMeshOperator(tokenId: bigint, operator: `0x${string}`): void {
+    this.meshOperators.set(tokenId, operator);
+  }
+
+  async isMeshAuthorized(tokenId: bigint): Promise<boolean> {
+    if (tokenId === this.config.scarletTokenId) {
+      return true;
+    }
+    const relayerAddress = this.getAccountAddress().toLowerCase();
+    const owner = this.tokenOwners.get(tokenId)?.owner;
+    const operator = this.meshOperators.get(tokenId);
+    return (
+      owner?.toLowerCase() === relayerAddress ||
+      operator?.toLowerCase() === relayerAddress
+    );
+  }
+
+  async getMeshPairStatus(
+    fromTokenId: bigint,
+    toTokenId: bigint
+  ): Promise<{
+    isMutual: boolean;
+    hasPendingOutbound: boolean;
+    hasPendingInbound: boolean;
+  }> {
+    const edgeKey = this.computeEdgeKey(fromTokenId, toTokenId);
+    return {
+      isMutual: this.edges.get(edgeKey)?.isMutual || false,
+      hasPendingOutbound: this.pendingPings.has(`${fromTokenId}:${toTokenId}`),
+      hasPendingInbound: this.pendingPings.has(`${toTokenId}:${fromTokenId}`),
     };
   }
 

@@ -40,6 +40,8 @@ describe("Agent Specification & Preview APIs", () => {
       expect(res.body.endpoints.voteSubmit).toBeDefined();
       expect(res.body.endpoints.votePreview).toBeDefined();
       expect(res.body.endpoints.voteStatus).toBeDefined();
+      expect(res.body.endpoints.meshPing.description).toContain("DIRECT_TX_REQUIRED");
+      expect(res.body.endpoints.meshPing.responses[403]).toBeDefined();
 
       // Verify sample payloads & cURL examples
       expect(res.body.samplePayloads.votePreview).toBeDefined();

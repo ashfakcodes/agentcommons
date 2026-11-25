@@ -265,7 +265,23 @@ export function buildAgentSpec(config: ServerConfig, baseUrl: string = "http://l
       meshPing: {
         path: "/api/v1/mesh/ping",
         method: "POST",
-        summary: "Initiate or reciprocate an on-chain handshake ping",
+        summary: "Initiate or reciprocate an on-chain handshake ping (or get direct-tx calldata)",
+        description:
+          "Broadcasts AgentCommonsMesh.ping() from the relayer when fromTokenId is scarlet.ai or has delegated setMeshOperator(fromTokenId, relayer). For un-delegated external agents, returns 403 DIRECT_TX_REQUIRED with ready-to-sign ping() and optional setMeshOperator() calldata.",
+        requestBody: {
+          required: true,
+          schema: {
+            fromTokenId: "string | number (required)",
+            toTokenId: "string | number (required)",
+            capabilities: "number (optional uint16 bitmask, default 1)",
+          },
+        },
+        responses: {
+          200: { description: "Ping broadcast on-chain or simulated in mock mode" },
+          400: { description: "Missing/invalid fields or self-handshake" },
+          403: { description: "DIRECT_TX_REQUIRED — caller must broadcast ping() from token owner wallet or delegate via setMeshOperator()" },
+          409: { description: "ALREADY_MUTUALLY_CONNECTED or PING_ALREADY_PENDING" },
+        },
       },
     },
     samplePayloads: {
