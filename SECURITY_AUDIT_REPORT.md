@@ -56,7 +56,7 @@
 - **Locations:** `contracts/src/AgentCommonsParliament.sol` (`nonces`, `_processBatchVote`), `server/src/routes/vote.ts` (lines 141–175), `server/src/services/queue.ts` (`getTokenNoncesInQueue`)
 - **Current State:**
   - `AgentCommonsParliament.sol` still tracks a single per-token `mapping(uint256 => uint256) public nonces` consumed sequentially inside `castVotesBatch`.
-  - **Server Remediation Applied:** `GET /api/v1/vote/status` computes `currentNonce = onChainNonce + queue.getTokenNoncesInQueue(tId)`, and `POST /api/v1/vote/submit` now checks queued duplicates first (`409 BALLOT_ALREADY_QUEUED`) and strictly enforces `ballotNonce === effectiveExpectedNonce` (`400 STALE_NONCE`), preventing multi-proposal batches from signing overlapping nonces.
+  - **Server Remediation Applied:** `GET /api/v1/vote/status` computes `currentNonce = onChainNonce + queue.getTokenNoncesInQueue(tId)`, `POST /api/v1/vote/submit` checks queued duplicates first (`409 BALLOT_ALREADY_QUEUED`) and enforces `ballotNonce === effectiveExpectedNonce` (`400 STALE_NONCE`), and `BallotQueue.dequeueBatch()` enforces per-token `minNonceByToken` scheduling so higher-nonce ballots wait cleanly for lower-nonce ballots on earlier proposals. Furthermore, `HotWalletManager` serializes `writeContract()` inside `nonceLock` with `resyncNonce()` on broadcast error and 45s `waitForTransactionReceipt` timeouts (eliminating the `138` vs `165` relayer nonce-gap deadlock observed during the 81-agent live stress test).
 - **Remaining Gap:** A future Parliament v3 should scope ballot replay strictly to `hasTokenVoted[proposalId][tokenId]` (or per-proposal nonces) so out-of-order batch settlement cannot invalidate a later queued ballot if an earlier ballot expires or drops.
 
 ---
@@ -134,7 +134,7 @@
 ## 4. Verification Summary (Current Codebase)
 
 - **Smart Contracts (`contracts/`):** `42 / 42` Hardhat tests passing (`AgentCommonsMesh.test.ts` & `AgentCommonsParliament.test.ts`).
-- **Relayer Server (`server/`):** `12 / 12` test files (`94 / 94` Vitest tests) passing + `tsc --noEmit` clean.
+- **Relayer Server (`server/`):** `12 / 12` test files (`100 / 100` Vitest tests) passing + `tsc --noEmit` clean.
 - **Agent SDK (`agent/`):** `5 / 5` verification suites passing.
 - **CLI Simulator (`cli/`):** `25 / 25` tests passing.
 - **Web Frontend (`web/`):** `tsc && vite build` production bundle compiles cleanly.

@@ -104,4 +104,25 @@ describe("HandshakeDaemon", () => {
 
     daemon.stop();
   });
+
+  it("should batch-reciprocate multiple pending inbound pings in a single startup sweep", async () => {
+    const mockBlockchain = new MockBlockchainClient(config);
+    const peers = [45n, 46n, 47n];
+    for (const p of peers) {
+      await mockBlockchain.pingReciprocal(p, config.scarletTokenId, 31);
+    }
+
+    const daemon = new HandshakeDaemon(config, mockBlockchain);
+    daemon.start();
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    expect(daemon.stats.totalHandshakesReciprocated).toBe(3);
+    for (const p of peers) {
+      const status = await mockBlockchain.getMeshPairStatus(config.scarletTokenId, p);
+      expect(status.isMutual).toBe(true);
+    }
+
+    daemon.stop();
+  });
 });

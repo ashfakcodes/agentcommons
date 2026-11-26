@@ -57,7 +57,8 @@ export class HandshakeDaemon extends EventEmitter {
 
   /**
    * Reconciles unreciprocated on-chain pings targeting scarlet.ai that may have
-   * been missed during restarts or log watch gaps.
+   * been missed during restarts or log watch gaps. Uses batchReciprocate when
+   * multiple peers are waiting so all pending handshakes settle in minimal txs.
    */
   public async reconcilePendingPings(): Promise<void> {
     if (!this.isRunning || !this.blockchain.getPendingInboundPings) return;
@@ -66,9 +67,66 @@ export class HandshakeDaemon extends EventEmitter {
       .getPendingInboundPings(this.config.scarletTokenId)
       .catch(() => []);
 
-    for (const peerTokenId of pendingPeers) {
-      if (peerTokenId === this.config.scarletTokenId) continue;
-      if (this.inFlight.has(peerTokenId.toString())) continue;
+    const eligiblePeers = pendingPeers.filter(
+      (peerTokenId) =>
+        peerTokenId !== this.config.scarletTokenId &&
+        !this.inFlight.has(peerTokenId.toString())
+    );
+
+    if (eligiblePeers.length === 0) return;
+
+    if (eligiblePeers.length >= 2 && this.blockchain.batchReciprocate) {
+      const CHUNK_SIZE = 20;
+      for (let i = 0; i < eligiblePeers.length; i += CHUNK_SIZE) {
+        const chunk = eligiblePeers.slice(i, i + CHUNK_SIZE);
+        for (const p of chunk) {
+          this.inFlight.add(p.toString());
+        }
+        this.stats.totalPingsObserved += chunk.length;
+
+        try {
+          console.log(
+            `[HandshakeDaemon] Batch-reciprocating ${chunk.length} pending handshakes with scarlet.ai...`
+          );
+          const txHash = await this.blockchain.batchReciprocate(
+            this.config.scarletTokenId,
+            chunk,
+            1
+          );
+          this.stats.totalHandshakesReciprocated += chunk.length;
+          this.stats.lastReciprocatedTokenId = chunk[chunk.length - 1];
+          this.stats.lastTxHash = txHash;
+
+          const nowSec = Math.floor(Date.now() / 1000);
+          for (const peerTokenId of chunk) {
+            this.emit("handshakeReciprocated", {
+              peerTokenId,
+              txHash,
+              timestamp: nowSec,
+            });
+          }
+          console.log(
+            `[HandshakeDaemon] Batch-reciprocated ${chunk.length} handshakes. Tx: ${txHash}`
+          );
+        } catch (err: any) {
+          console.warn(
+            `[HandshakeDaemon] Batch reciprocation failed (${err?.message || err}); falling back to sequential queue.`
+          );
+          for (const peerTokenId of chunk) {
+            this.inFlight.delete(peerTokenId.toString());
+            this.enqueueReciprocation(peerTokenId, Math.floor(Date.now() / 1000));
+          }
+          continue;
+        }
+
+        for (const p of chunk) {
+          this.inFlight.delete(p.toString());
+        }
+      }
+      return;
+    }
+
+    for (const peerTokenId of eligiblePeers) {
       this.stats.totalPingsObserved++;
       this.enqueueReciprocation(peerTokenId, Math.floor(Date.now() / 1000));
     }

@@ -102,4 +102,43 @@ describe("HotWalletManager & Server Integration", () => {
     expect(res.body.hotWallet.isGasHealthy).toBe(true);
     expect(res.body.hotWallet.keystoreSource).toBe("mock");
   });
+
+  it("should serialize concurrent writeContractGuarded calls and recover nonce on broadcast failure", async () => {
+    const manager = new HotWalletManager({ ...config, mockMode: true });
+    await manager.initialize();
+
+    let callOrder: number[] = [];
+    let attempt = 0;
+
+    // Stub walletClient & publicClient on manager to test serialized lock + rollback
+    (manager as any).walletClient = {
+      writeContract: async ({ nonce }: any) => {
+        attempt++;
+        callOrder.push(nonce);
+        await new Promise((r) => setTimeout(r, 15));
+        if (attempt === 1) {
+          throw new Error("Simulated RPC timeout during broadcast");
+        }
+        return `0x${String(nonce).padStart(64, "a")}` as `0x${string}`;
+      },
+    };
+
+    const txParams = {
+      address: config.parliamentAddress,
+      abi: [],
+      functionName: "castVotesBatch",
+      args: [],
+    };
+
+    // Launch two concurrent writes: first fails at nonce 0 and rolls back; second waits for lock and gets nonce 0
+    const [r1, r2] = await Promise.allSettled([
+      manager.writeContractGuarded(txParams),
+      manager.writeContractGuarded(txParams),
+    ]);
+
+    expect(r1.status).toBe("rejected");
+    expect(r2.status).toBe("fulfilled");
+    // Both attempted nonce 0 because first rolled back cleanly while holding lock
+    expect(callOrder).toEqual([0, 0]);
+  });
 });

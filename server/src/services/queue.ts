@@ -79,20 +79,35 @@ export class BallotQueue {
   }
 
   /**
-   * Dequeues up to `maxSize` ballots that share the same proposalId.
-   * Prioritizes the proposal with the oldest queued ballot.
+   * Dequeues up to `maxSize` ballots that share the same proposalId,
+   * while enforcing per-token monotonic nonce ordering: a ballot (tokenId, nonce)
+   * is only eligible if no lower-nonce ballot for that tokenId is still pending in queue.
    */
   public dequeueBatch(maxSize: number = 50): { proposalId: bigint; batch: QueuedVote[] } | null {
     if (this.queue.length === 0) return null;
 
-    // Target proposalId is that of the first queued ballot
-    const targetProposalId = this.queue[0].proposalId;
+    // Determine lowest pending nonce per tokenId across the queue
+    const minNonceByToken = new Map<string, bigint>();
+    for (const item of this.queue) {
+      const tid = item.tokenId.toString();
+      const prev = minNonceByToken.get(tid);
+      if (prev === undefined || item.nonce < prev) {
+        minNonceByToken.set(tid, item.nonce);
+      }
+    }
+
+    const isEligible = (item: QueuedVote): boolean =>
+      item.nonce === minNonceByToken.get(item.tokenId.toString());
+
+    // Target proposalId of the first eligible ballot (fallback to queue[0] if none)
+    const firstEligible = this.queue.find(isEligible) || this.queue[0];
+    const targetProposalId = firstEligible.proposalId;
 
     const batch: QueuedVote[] = [];
     const remaining: QueuedVote[] = [];
 
     for (const item of this.queue) {
-      if (item.proposalId === targetProposalId && batch.length < maxSize) {
+      if (item.proposalId === targetProposalId && isEligible(item) && batch.length < maxSize) {
         batch.push(item);
         this.queuedTokenKeys.delete(`${item.proposalId}:${item.tokenId}`);
         this.queuedSignerKeys.delete(`${item.proposalId}:${item.signer.toLowerCase()}`);

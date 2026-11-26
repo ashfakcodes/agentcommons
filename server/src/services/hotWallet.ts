@@ -159,11 +159,7 @@ export class HotWalletManager {
     return this.publicClient;
   }
 
-  /**
-   * Acquires the next sequential nonce in a thread-safe mutex lock.
-   * Guarantees monotonic ordering even if multiple transactions trigger in parallel.
-   */
-  public async acquireNextNonce(): Promise<bigint> {
+  private async runWithNonceLock<T>(fn: () => Promise<T>): Promise<T> {
     await this.ensureInitialized();
     let releaseLock: () => void = () => {};
     const lockWait = new Promise<void>((resolve) => {
@@ -171,22 +167,29 @@ export class HotWalletManager {
     });
 
     const previousLock = this.nonceLock;
-    this.nonceLock = (async () => {
-      await previousLock;
-    })();
-
+    this.nonceLock = lockWait;
     await previousLock;
 
     try {
+      return await fn();
+    } finally {
+      releaseLock();
+    }
+  }
+
+  /**
+   * Acquires the next sequential nonce in a thread-safe mutex lock.
+   * Guarantees monotonic ordering even if multiple transactions trigger in parallel.
+   */
+  public async acquireNextNonce(): Promise<bigint> {
+    return await this.runWithNonceLock(async () => {
       if (this.currentNonce === null) {
         await this.resyncNonce();
       }
       const assignedNonce = this.currentNonce!;
       this.currentNonce = assignedNonce + 1n;
       return assignedNonce;
-    } finally {
-      releaseLock();
-    }
+    });
   }
 
   /**
@@ -273,7 +276,8 @@ export class HotWalletManager {
   }
 
   /**
-   * Executes a contract write call with atomic nonce, gas pre-check, and auto-retry on nonce race.
+   * Executes a contract write call with serialized nonce lock, gas pre-check, and resync on error.
+   * Holding the nonce lock across broadcast prevents concurrent callers from creating nonce gaps.
    */
   public async writeContractGuarded(params: {
     address: `0x${string}`;
@@ -291,42 +295,43 @@ export class HotWalletManager {
       );
     }
 
-    const nonce = await this.acquireNextNonce();
-
-    try {
-      const hash = await this.walletClient.writeContract({
-        address: params.address,
-        abi: params.abi,
-        functionName: params.functionName,
-        args: params.args,
-        value: params.value,
-        nonce: Number(nonce),
-        account: this.account,
-        chain: this.chain,
-      } as any);
-
-      return hash;
-    } catch (err: any) {
-      const errMsg = err?.message || String(err);
-
-      // Auto-resync nonce if collision occurred
-      if (
-        errMsg.includes("nonce too low") ||
-        errMsg.includes("replacement transaction underpriced") ||
-        errMsg.includes("NONCE_EXPIRED")
-      ) {
-        console.warn(`[HotWalletManager] Nonce collision detected (${nonce}). Resyncing from chain...`);
+    return await this.runWithNonceLock(async () => {
+      if (this.currentNonce === null) {
         await this.resyncNonce();
-      } else {
-        this.rollbackNonce(nonce);
       }
+      const nonce = this.currentNonce!;
+      this.currentNonce = nonce + 1n;
 
-      throw err;
-    }
+      try {
+        const hash = await this.walletClient.writeContract({
+          address: params.address,
+          abi: params.abi,
+          functionName: params.functionName,
+          args: params.args,
+          value: params.value,
+          nonce: Number(nonce),
+          account: this.account,
+          chain: this.chain,
+        } as any);
+
+        return hash;
+      } catch (err: any) {
+        const errMsg = err?.message || String(err);
+        if (this.config.mockMode) {
+          this.rollbackNonce(nonce);
+        } else {
+          console.warn(
+            `[HotWalletManager] Broadcast error on nonce ${nonce} (${errMsg}). Resyncing from chain...`
+          );
+          await this.resyncNonce();
+        }
+        throw err;
+      }
+    });
   }
 
   /**
-   * Executes a native BNB gas/reward transfer with atomic nonce, gas health check, and error recovery.
+   * Executes a native BNB gas/reward transfer with serialized nonce lock, gas health check, and error recovery.
    */
   public async sendNativeTransferGuarded(params: {
     to: `0x${string}`;
@@ -352,34 +357,32 @@ export class HotWalletManager {
       );
     }
 
-    const nonce = await this.acquireNextNonce();
-
-    try {
-      const hash = await this.walletClient.sendTransaction({
-        to: params.to,
-        value: params.valueWei,
-        nonce: Number(nonce),
-        account: this.account,
-        chain: this.chain,
-      } as any);
-
-      return hash;
-    } catch (err: any) {
-      const errMsg = err?.message || String(err);
-
-      if (
-        errMsg.includes("nonce too low") ||
-        errMsg.includes("replacement transaction underpriced") ||
-        errMsg.includes("NONCE_EXPIRED")
-      ) {
-        console.warn(`[HotWalletManager] Nonce collision detected (${nonce}). Resyncing from chain...`);
+    return await this.runWithNonceLock(async () => {
+      if (this.currentNonce === null) {
         await this.resyncNonce();
-      } else {
-        this.rollbackNonce(nonce);
       }
+      const nonce = this.currentNonce!;
+      this.currentNonce = nonce + 1n;
 
-      throw err;
-    }
+      try {
+        const hash = await this.walletClient.sendTransaction({
+          to: params.to,
+          value: params.valueWei,
+          nonce: Number(nonce),
+          account: this.account,
+          chain: this.chain,
+        } as any);
+
+        return hash;
+      } catch (err: any) {
+        const errMsg = err?.message || String(err);
+        console.warn(
+          `[HotWalletManager] Native transfer error on nonce ${nonce} (${errMsg}). Resyncing from chain...`
+        );
+        await this.resyncNonce();
+        throw err;
+      }
+    });
   }
 
   /**

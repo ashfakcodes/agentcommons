@@ -1173,7 +1173,10 @@ export class LiveBlockchainClient implements IBlockchainClient {
       args: [proposalId, tokenIds, supports, deadlines, signatures],
     });
 
-    const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
+    const receipt = await this.publicClient.waitForTransactionReceipt({
+      hash,
+      timeout: 45_000,
+    });
     let successfulVotes = tokenIds.length;
     let failedVotes = 0;
 
@@ -1240,7 +1243,10 @@ export class LiveBlockchainClient implements IBlockchainClient {
       ],
     });
 
-    const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
+    const receipt = await this.publicClient.waitForTransactionReceipt({
+      hash,
+      timeout: 45_000,
+    });
     let proposalId: bigint = 0n;
 
     for (const log of receipt.logs) {
@@ -1393,7 +1399,10 @@ export class LiveBlockchainClient implements IBlockchainClient {
       args: [fromTokenId, toTokenId, capabilities],
     });
 
-    const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
+    const receipt = await this.publicClient.waitForTransactionReceipt({
+      hash,
+      timeout: 45_000,
+    });
     let isMutual = false;
 
     for (const log of receipt.logs) {
@@ -1440,12 +1449,57 @@ export class LiveBlockchainClient implements IBlockchainClient {
     peerTokenIds: bigint[],
     capabilities: number = 1
   ): Promise<`0x${string}`> {
-    return await this.hotWallet.writeContractGuarded({
+    const hash = await this.hotWallet.writeContractGuarded({
       address: this.config.meshAddress,
       abi: MeshAbi,
       functionName: "batchReciprocate",
       args: [myTokenId, peerTokenIds, capabilities],
     });
+
+    const receipt = await this.publicClient.waitForTransactionReceipt({
+      hash,
+      timeout: 45_000,
+    });
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const settledPeers: bigint[] = [];
+
+    for (const log of receipt.logs) {
+      try {
+        if (log.address.toLowerCase() === this.config.meshAddress.toLowerCase()) {
+          const decoded = decodeEventLog({
+            abi: MeshAbi,
+            data: log.data,
+            topics: log.topics,
+          });
+          if (decoded.eventName === "MutualHandshakeCompleted") {
+            const args = decoded.args as any;
+            const tidA = BigInt(args.tokenIdA);
+            const tidB = BigInt(args.tokenIdB);
+            const minTid = tidA < tidB ? tidA : tidB;
+            const maxTid = tidA < tidB ? tidB : tidA;
+            const edgeKey = String(args.edgeKey);
+            this.knownEdges.set(edgeKey, {
+              edgeKey,
+              nodeA: minTid.toString(),
+              nodeB: maxTid.toString(),
+              isMutual: true,
+              capabilityMask: capabilities,
+              establishedAt: nowSec,
+            });
+            settledPeers.push(tidA === myTokenId ? tidB : tidA);
+          }
+        }
+      } catch {}
+    }
+
+    await Promise.allSettled([
+      this.ensureDiscoveredNode(myTokenId),
+      ...settledPeers.map((pid) => this.ensureDiscoveredNode(pid)),
+    ]);
+    this.savePersistedState();
+
+    return hash;
   }
 
   async getMeshEdges(): Promise<MeshEdge[]> {

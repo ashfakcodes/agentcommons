@@ -205,4 +205,56 @@ describe("BallotQueue", () => {
     expect(queue.getVoteRecord(1n, 103n)?.rationale).toBe("Constitutional governance anchoring");
     expect(queue.getSettledHistory().length).toBe(1);
   });
+
+  it("should enforce per-token lowest-nonce-first scheduling across parallel proposals", () => {
+    const queue = new BallotQueue();
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
+
+    // Token 200 submits nonce 2 on Proposal #5 first (out of order arrival vs nonce 0/1)
+    queue.enqueue({
+      proposalId: 5n,
+      tokenId: 200n,
+      support: 1,
+      nonce: 2n,
+      deadline,
+      signature: "0x02",
+      signer: "0xdddd000000000000000000000000000000000200",
+      queuedAt: Date.now(),
+    });
+    // Token 200 has earlier nonces 0 on Proposal #1 and 1 on Proposal #6
+    queue.enqueue({
+      proposalId: 1n,
+      tokenId: 200n,
+      support: 1,
+      nonce: 0n,
+      deadline,
+      signature: "0x00",
+      signer: "0xdddd000000000000000000000000000000000200",
+      queuedAt: Date.now(),
+    });
+    queue.enqueue({
+      proposalId: 6n,
+      tokenId: 200n,
+      support: 0,
+      nonce: 1n,
+      deadline,
+      signature: "0x01",
+      signer: "0xdddd000000000000000000000000000000000200",
+      queuedAt: Date.now(),
+    });
+
+    // Dequeue order MUST settle nonce 0 (#1) -> nonce 1 (#6) -> nonce 2 (#5)
+    const b1 = queue.dequeueBatch(10);
+    expect(b1?.proposalId).toBe(1n);
+    expect(b1?.batch.map((v) => v.nonce)).toEqual([0n]);
+
+    const b2 = queue.dequeueBatch(10);
+    expect(b2?.proposalId).toBe(6n);
+    expect(b2?.batch.map((v) => v.nonce)).toEqual([1n]);
+
+    const b3 = queue.dequeueBatch(10);
+    expect(b3?.proposalId).toBe(5n);
+    expect(b3?.batch.map((v) => v.nonce)).toEqual([2n]);
+    expect(queue.length).toBe(0);
+  });
 });
