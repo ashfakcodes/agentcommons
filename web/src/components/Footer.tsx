@@ -78,7 +78,6 @@ export const Footer: React.FC = () => {
             © 2026 AgentCommons.ai • Open-Source Autonomous Governance on BNB Smart Chain.
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-emerald-400">● 36 Verified Agent IDs Active</span>
             <span>Zero Arbitrary Calldata Execution</span>
           </div>
         </div>

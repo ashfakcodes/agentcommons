@@ -10,7 +10,13 @@ import { AiAgentPromptBox } from './components/AiAgentPromptBox';
 import { INITIAL_AGENTS, generateInitialEdges, computeCanonicalKey } from './mock/agentsData';
 import { INITIAL_PROPOSALS } from './mock/proposalsData';
 import { AgentNode, MeshEdge, Proposal, SupportType } from './types';
-import { RELAYER_API_BASE, BSC_CONFIG } from './constants/contracts';
+import {
+  RELAYER_API_BASE,
+  BSC_CONFIG,
+  PARLIAMENT_ADDRESS,
+  MESH_ADDRESS,
+  SPACE_ID_REGISTRAR_ADDRESS,
+} from './constants/contracts';
 
 export const App: React.FC = () => {
   const [agents, setAgents] = useState<AgentNode[]>(INITIAL_AGENTS);
@@ -49,6 +55,7 @@ export const App: React.FC = () => {
               isMutual: Boolean(e.isMutual),
               establishedAt: e.establishedAt ? Number(e.establishedAt) * 1000 : Date.now(),
               capabilityMask: Number(e.capabilityMask || 1),
+              txHash: e.txHash,
             };
           });
         }
@@ -142,6 +149,9 @@ export const App: React.FC = () => {
             status: p.status || (isLegacy ? 'Succeeded' : 'Active'),
             createdAt: p.createdAt ? Number(p.createdAt) * 1000 : Date.now(),
             isLegacy,
+            contractAddress: p.contractAddress,
+            creationTxHash: p.creationTxHash,
+            recentVoteReceipts: Array.isArray(p.recentVoteReceipts) ? p.recentVoteReceipts : undefined,
           };
         };
 
@@ -270,9 +280,44 @@ export const App: React.FC = () => {
       {currentTab === 'parliament' ? (
         <main className="flex-1 w-full min-w-0 mx-auto py-3 md:py-6">
           {/* Header & Subtitle */}
-          <header className="mb-2 text-center">
-            <h1 className="title">AgentCommons</h1>
-            <p className="subtitle">The Democratic Parliament for BNB Chain Agents</p>
+          <header className="mb-2 text-center px-4">
+            <div className="inline-flex flex-wrap items-center justify-center gap-2 mb-2 px-3 py-1 rounded-full border border-[#F0B90B]/30 bg-[#F0B90B]/5 text-[10px] font-mono tracking-wider uppercase text-[#F0B90B]">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#F0B90B]" aria-hidden="true" />
+              <span>BNB Smart Chain Mainnet (Chain {BSC_CONFIG.chainId})</span>
+              <span className="text-[#8fa3b8]/50">•</span>
+              <span className="text-[#e5e4e2]">On-Chain Protocol</span>
+            </div>
+
+            <h1 className="title !mt-1">AgentCommons</h1>
+            <p className="subtitle">Sybil-Proof On-Chain Parliament &amp; Citizen Mesh for BNB Chain Agents</p>
+
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-3 text-[11px] font-mono">
+              <a
+                href={`${BSC_CONFIG.blockExplorerUrl}/address/${SPACE_ID_REGISTRAR_ADDRESS}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-2.5 py-1 rounded border border-[#8fa3b8]/25 bg-[#0a0c10] text-[#8fa3b8] hover:text-[#e5e4e2] hover:border-[#8fa3b8]/50 transition-colors"
+              >
+                SPACE ID .ai Soulbound (1-Agent-1-Vote)
+              </a>
+              <a
+                href={`${BSC_CONFIG.blockExplorerUrl}/address/${PARLIAMENT_ADDRESS}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-2.5 py-1 rounded border border-[#8fa3b8]/25 bg-[#0a0c10] text-[#8fa3b8] hover:text-[#e5e4e2] hover:border-[#8fa3b8]/50 transition-colors"
+              >
+                EIP-712 Gasless Parliament ({PARLIAMENT_ADDRESS.slice(0, 6)}...{PARLIAMENT_ADDRESS.slice(-4)})
+              </a>
+              <a
+                href={`${BSC_CONFIG.blockExplorerUrl}/address/${MESH_ADDRESS}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-2.5 py-1 rounded border border-[#8fa3b8]/25 bg-[#0a0c10] text-[#8fa3b8] hover:text-[#e5e4e2] hover:border-[#8fa3b8]/50 transition-colors"
+              >
+                On-Chain Citizen Mesh ({MESH_ADDRESS.slice(0, 6)}...{MESH_ADDRESS.slice(-4)})
+              </a>
+            </div>
+
             <div className="line" />
           </header>
 

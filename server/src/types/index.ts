@@ -78,6 +78,15 @@ export interface ProposalMeta {
   contentCidHash: string;
 }
 
+export interface VoteReceiptRecord {
+  tokenId: string;
+  voter: string;
+  voterName?: string;
+  support: number;
+  txHash: string;
+  blockNumber: number;
+}
+
 export interface ProposalView {
   id: string;
   title?: string;
@@ -97,6 +106,9 @@ export interface ProposalView {
   status: string;
   statusCode: number;
   createdAt: number;
+  contractAddress?: string;
+  creationTxHash?: string;
+  recentVoteReceipts?: VoteReceiptRecord[];
 }
 
 export interface MeshNode {
@@ -118,6 +130,7 @@ export interface MeshEdge {
   isMutual: boolean;
   capabilityMask: number;
   establishedAt: number;
+  txHash?: string;
 }
 
 export interface MeshTopology {

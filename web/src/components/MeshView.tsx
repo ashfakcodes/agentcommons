@@ -1,11 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { 
   Network, Search, ZoomIn, ZoomOut, RotateCcw, Zap, 
-  ShieldCheck, ExternalLink, Sparkles, CheckCircle2, Info
+  ShieldCheck, ExternalLink, CheckCircle2, Info, Loader2
 } from 'lucide-react';
+import { createPublicClient, http } from 'viem';
+import { bsc } from 'viem/chains';
 import { AgentNode, MeshEdge } from '../types';
 import { ForceDirectedMesh } from '../utils/meshPhysics';
-import { CAPABILITIES, MESH_ADDRESS, BSC_CONFIG } from '../constants/contracts';
+import {
+  CAPABILITIES,
+  MESH_ADDRESS,
+  SPACE_ID_REGISTRAR_ADDRESS,
+  BSC_CONFIG,
+  MESH_ABI,
+  SPACE_ID_REGISTRAR_ABI,
+} from '../constants/contracts';
 
 interface MeshViewProps {
   agents: AgentNode[];
@@ -26,6 +35,68 @@ export const MeshView: React.FC<MeshViewProps> = ({
   const [search, setSearch] = useState('');
   const [isPinging, setIsPinging] = useState(false);
   const [pingSuccessMessage, setPingSuccessMessage] = useState<string | null>(null);
+  const [isProbingMesh, setIsProbingMesh] = useState(false);
+  const [onChainMeshState, setOnChainMeshState] = useState<{
+    tokenId: string;
+    ownerOf: string | null;
+    meshOperator: string | null;
+    totalConnections: number | null;
+    error?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    setOnChainMeshState(null);
+  }, [selectedAgent?.tokenId]);
+
+  const handleProbeOnChainMesh = async () => {
+    if (!selectedAgent) return;
+    setIsProbingMesh(true);
+    setOnChainMeshState(null);
+    try {
+      const client = createPublicClient({
+        chain: bsc,
+        transport: http(BSC_CONFIG.rpcUrl),
+      });
+      const tid = BigInt(selectedAgent.tokenId);
+      const [ownerRes, opRes, connRes] = await Promise.allSettled([
+        client.readContract({
+          address: SPACE_ID_REGISTRAR_ADDRESS as `0x${string}`,
+          abi: SPACE_ID_REGISTRAR_ABI,
+          functionName: 'ownerOf',
+          args: [tid],
+        }),
+        client.readContract({
+          address: MESH_ADDRESS as `0x${string}`,
+          abi: MESH_ABI,
+          functionName: 'meshOperators',
+          args: [tid],
+        }),
+        client.readContract({
+          address: MESH_ADDRESS as `0x${string}`,
+          abi: MESH_ABI,
+          functionName: 'totalConnections',
+          args: [tid],
+        }),
+      ]);
+
+      setOnChainMeshState({
+        tokenId: String(selectedAgent.tokenId),
+        ownerOf: ownerRes.status === 'fulfilled' ? String(ownerRes.value) : null,
+        meshOperator: opRes.status === 'fulfilled' ? String(opRes.value) : null,
+        totalConnections: connRes.status === 'fulfilled' ? Number(connRes.value) : null,
+      });
+    } catch (err: any) {
+      setOnChainMeshState({
+        tokenId: String(selectedAgent.tokenId),
+        ownerOf: null,
+        meshOperator: null,
+        totalConnections: null,
+        error: err?.shortMessage || err?.message || 'RPC probe failed',
+      });
+    } finally {
+      setIsProbingMesh(false);
+    }
+  };
 
   // Keep selectedAgent refreshed when live nodes update
   useEffect(() => {
@@ -60,7 +131,11 @@ export const MeshView: React.FC<MeshViewProps> = ({
 
   // Handle agent search selection
   const handleSearchSelect = (agentName: string) => {
-    const target = agents.find((a) => a.name.toLowerCase() === agentName.toLowerCase());
+    const q = agentName.trim().toLowerCase();
+    if (!q) return;
+    const target =
+      agents.find((a) => a.name.toLowerCase() === q) ||
+      agents.find((a) => a.name.toLowerCase().includes(q) || String(a.tokenId).includes(q));
     if (target && meshRef.current) {
       setSelectedAgent(target);
       meshRef.current.selectedNodeId = target.id;
@@ -153,7 +228,13 @@ export const MeshView: React.FC<MeshViewProps> = ({
             <input
               type="text"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                handleSearchSelect(e.target.value);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSearchSelect(search);
+              }}
               placeholder="Find agent node..."
               className="pl-7 pr-3 py-1.5 bg-[#050505] border border-[#8fa3b8]/20 rounded-md text-xs text-[#e5e4e2] placeholder:text-[#8fa3b8]/50 focus:outline-none focus:border-[#8fa3b8]/50 font-mono w-44 sm:w-56"
             />
@@ -247,9 +328,16 @@ export const MeshView: React.FC<MeshViewProps> = ({
                     <h3 className="font-semibold text-sm font-mono text-[#e5e4e2]">
                       {selectedAgent.name}
                     </h3>
-                    <span className="text-[11px] text-[#8fa3b8] font-mono" title={`Token ID: ${selectedAgent.tokenId}`}>
-                      #{formatTokenId(selectedAgent.tokenId)}
-                    </span>
+                    <a
+                      href={`${BSC_CONFIG.blockExplorerUrl}/token/${SPACE_ID_REGISTRAR_ADDRESS}?a=${selectedAgent.tokenId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-0.5 text-[11px] text-cyan-400 hover:underline font-mono"
+                      title={`View SPACE ID NFT #${selectedAgent.tokenId} on BscScan`}
+                    >
+                      <span>#{formatTokenId(selectedAgent.tokenId)}</span>
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
                   </div>
                   <div className="flex items-center gap-1 text-[10px] text-[#8fa3b8] font-mono mt-0.5">
                     <ShieldCheck className="w-3 h-3 text-[#8fa3b8]" />
@@ -286,32 +374,149 @@ export const MeshView: React.FC<MeshViewProps> = ({
                 </div>
               </div>
 
-              {/* Capabilities Bitmask Badges */}
+              {/* Capabilities Bitmask Inspector */}
               <div>
                 <label className="block text-[11px] font-mono text-[#8fa3b8] mb-1.5">
-                  CAPABILITY BITMASK (0x{selectedAgent.capabilities.toString(16).padStart(2, '0')})
+                  CAPABILITY INSPECTOR (0x{selectedAgent.capabilities.toString(16).padStart(2, '0')})
                 </label>
-                <div className="flex flex-wrap gap-1">
+                <div className="space-y-1">
                   {Object.entries(CAPABILITIES).map(([bitStr, cap]) => {
                     const hasCap = (selectedAgent.capabilities & Number(bitStr)) !== 0;
-                    if (!hasCap) return null;
                     return (
-                      <span
+                      <div
                         key={bitStr}
-                        className="px-1.5 py-0.5 rounded text-[10px] font-mono text-[#8fa3b8] border border-[#8fa3b8]/25 bg-transparent"
+                        className={`px-2 py-1 rounded text-[10px] font-mono border flex items-center justify-between gap-2 ${
+                          hasCap
+                            ? 'text-[#e5e4e2] border-emerald-500/30 bg-emerald-950/10'
+                            : 'text-[#8fa3b8]/45 border-white/5 bg-transparent'
+                        }`}
+                        title={cap.description}
                       >
-                        {cap.tag}
-                      </span>
+                        <span className="truncate">{cap.tag}</span>
+                        <span className={hasCap ? 'text-emerald-400 shrink-0' : 'text-[#8fa3b8]/40 shrink-0'}>
+                          {hasCap ? 'ENABLED' : 'OFF'}
+                        </span>
+                      </div>
                     );
                   })}
                 </div>
               </div>
 
-              {/* BSC Address */}
-              <div className="p-2 bg-[#8fa3b8]/05 rounded-md border border-[#8fa3b8]/15 text-[11px] font-mono space-y-1">
-                <span className="text-[#8fa3b8]/70">Owner Wallet Address:</span>
+              {/* BSC Address & Live Contract Probe */}
+              <div className="p-2 bg-[#8fa3b8]/05 rounded-md border border-[#8fa3b8]/15 text-[11px] font-mono space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[#8fa3b8]/70">Owner Wallet Address:</span>
+                  <a
+                    href={`${BSC_CONFIG.blockExplorerUrl}/address/${selectedAgent.owner}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-0.5 text-cyan-400 hover:underline text-[10px]"
+                  >
+                    <span>BscScan</span>
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                </div>
                 <p className="text-[#e5e4e2] truncate">{selectedAgent.owner}</p>
+
+                <button
+                  type="button"
+                  onClick={handleProbeOnChainMesh}
+                  disabled={isProbingMesh}
+                  className="w-full mt-1 py-1.5 rounded border border-[#F0B90B]/30 bg-[#F0B90B]/5 hover:bg-[#F0B90B]/10 text-[#F0B90B] text-[10px] font-mono flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {isProbingMesh ? (
+                    <>
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      <span>Querying BSC Mesh Contract...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck className="w-3 h-3" />
+                      <span>Verify On-Chain Mesh &amp; Operator</span>
+                    </>
+                  )}
+                </button>
+
+                {onChainMeshState && onChainMeshState.tokenId === String(selectedAgent.tokenId) && (
+                  <div className="pt-1.5 border-t border-white/5 text-[10px] space-y-0.5 text-[#8fa3b8]">
+                    {onChainMeshState.error ? (
+                      <p className="text-rose-400">{onChainMeshState.error}</p>
+                    ) : (
+                      <>
+                        <p className="truncate">
+                          ownerOf: <span className="text-[#e5e4e2]">{onChainMeshState.ownerOf || 'N/A'}</span>
+                        </p>
+                        <p className="truncate">
+                          meshOperator:{' '}
+                          <span className="text-[#e5e4e2]">
+                            {onChainMeshState.meshOperator &&
+                            onChainMeshState.meshOperator !== '0x0000000000000000000000000000000000000000'
+                              ? onChainMeshState.meshOperator
+                              : 'None (Owner Direct)'}
+                          </span>
+                        </p>
+                        <p>
+                          totalConnections:{' '}
+                          <span className="text-emerald-400">{onChainMeshState.totalConnections ?? 0}</span>
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
+
+              {/* Connected Edges & Handshake Receipts */}
+              {(() => {
+                const nodeEdges = edges.filter(
+                  (e) =>
+                    String(e.fromTokenId) === String(selectedAgent.tokenId) ||
+                    String(e.toTokenId) === String(selectedAgent.tokenId)
+                );
+                if (nodeEdges.length === 0) return null;
+                return (
+                  <div className="space-y-1.5">
+                    <label className="block text-[11px] font-mono text-[#8fa3b8]">
+                      ON-CHAIN EDGES ({nodeEdges.length})
+                    </label>
+                    <div className="space-y-1 max-h-28 overflow-y-auto text-[10px] font-mono">
+                      {nodeEdges.map((edge) => {
+                        const peerName =
+                          String(edge.fromTokenId) === String(selectedAgent.tokenId)
+                            ? edge.toName
+                            : edge.fromName;
+                        return (
+                          <div
+                            key={edge.edgeKey}
+                            className="p-1.5 rounded bg-[#050505] border border-white/5 flex items-center justify-between gap-2"
+                          >
+                            <span className="truncate text-[#e5e4e2]">
+                              {peerName}{' '}
+                              <span className={edge.isMutual ? 'text-emerald-400' : 'text-[#8fa3b8]'}>
+                                ({edge.isMutual ? 'Mutual' : 'Pending'})
+                              </span>
+                            </span>
+                            {edge.txHash ? (
+                              <a
+                                href={`${BSC_CONFIG.blockExplorerUrl}/tx/${edge.txHash}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-0.5 text-cyan-400 hover:underline shrink-0"
+                              >
+                                <span>Tx</span>
+                                <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                            ) : (
+                              <span className="text-[#8fa3b8]/50 shrink-0" title={edge.edgeKey}>
+                                {edge.edgeKey.slice(0, 8)}...
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Actions */}
               <div className="space-y-2 pt-2">

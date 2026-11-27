@@ -63,13 +63,13 @@ describe("Dynamic SPACE ID Name Resolution & Participant Discovery", () => {
 
   it("LiveBlockchainClient discovers voters and proposers on-chain, resolves SPACE ID tokenURI, and caches getAllProposals", async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentcommons-discovery-"));
-    const tempLedger = path.join(tempDir, "incentives-ledger.json");
+    const relayerStatePath = path.join(tempDir, "relayer-state.json");
 
     try {
       const cfg = {
         ...defaultConfig,
         mockMode: false,
-        incentiveLedgerPath: tempLedger,
+        relayerStatePath,
       };
       const client = new LiveBlockchainClient(cfg) as any;
 
@@ -137,6 +137,8 @@ describe("Dynamic SPACE ID Name Resolution & Participant Discovery", () => {
           if (eventName === "VoteCast") {
             return [
               {
+                transactionHash: "0xvote123",
+                blockNumber: 135506001n,
                 args: {
                   proposalId: 1n,
                   tokenId: wildTokenId,
@@ -187,8 +189,12 @@ describe("Dynamic SPACE ID Name Resolution & Participant Discovery", () => {
         // Both genesis and wild proposer names resolved dynamically (zero hardcoding)
         expect(proposals.length).toBe(2);
         expect(proposals[0].creatorName).toBe("scarlet.ai");
+        expect(proposals[0].contractAddress).toBe(cfg.parliamentAddress);
+        expect(proposals[0].recentVoteReceipts?.[0]?.txHash).toBe("0xvote123");
+        expect(proposals[0].recentVoteReceipts?.[0]?.voterName).toBe("wildagent.ai");
         expect(proposals[1].creatorName).toBe("wildagent.ai");
         expect(proposals[1].creatorTokenId).toBe(wildTokenId.toString());
+        expect(proposals[1].creationTxHash).toBe("0xabc123");
 
         // Citizen Mesh nodes include both scarlet.ai and wildagent.ai
         expect(nodes.length).toBe(2);
@@ -216,7 +222,6 @@ describe("Dynamic SPACE ID Name Resolution & Participant Discovery", () => {
 
   it("isolates persisted legacy v1 proposal #5 metadata/creator from active Parliament v2 proposal #5", async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentcommons-scope-"));
-    const tempLedger = path.join(tempDir, "incentives-ledger.json");
     const relayerStatePath = path.join(tempDir, "relayer-state.json");
 
     const quriowsOwner = "0x0A3A282db09aeA91331BECbD69378F896F4611EB" as `0x${string}`;
@@ -274,7 +279,7 @@ describe("Dynamic SPACE ID Name Resolution & Participant Discovery", () => {
         ...defaultConfig,
         mockMode: false,
         parliamentAddress: "0xc1Bd22eC6e5454bf34fEe4547546159ce10FCC82" as `0x${string}`,
-        incentiveLedgerPath: tempLedger,
+        relayerStatePath,
       };
       const client = new LiveBlockchainClient(cfg) as any;
 

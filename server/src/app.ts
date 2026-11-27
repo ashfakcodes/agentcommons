@@ -13,9 +13,7 @@ import { createVoteRouter } from "./routes/vote.js";
 import { createProposalsRouter } from "./routes/proposals.js";
 import { createMeshRouter } from "./routes/mesh.js";
 import { createSpecRouter, buildAgentSpec } from "./routes/spec.js";
-import { createIncentivesRouter } from "./routes/incentives.js";
 import { ProposalService } from "./services/proposalService.js";
-import { IncentiveService, IncentiveConfig } from "./services/incentives/index.js";
 import {
   securityHeaders,
   sanitizeRequest,
@@ -32,7 +30,6 @@ export interface ServerInstance {
   eip712: EIP712Service;
   relayerDaemon: RelayerDaemon;
   handshakeDaemon: HandshakeDaemon;
-  incentiveService?: IncentiveService;
   startDaemons: () => void;
   stopDaemons: () => void;
 }
@@ -78,47 +75,14 @@ export function createServer(customConfig?: Partial<ServerConfig>): ServerInstan
   app.use("/api/v1/health", healthRouter);
   app.use("/health", healthRouter);
 
-  // User Incentive Program Module
-  const incentiveConfig: IncentiveConfig = {
-    enabled: config.incentiveEnabled,
-    maxUsers: config.incentiveMaxUsers,
-    rewardUsd: config.incentiveRewardUsd,
-    fallbackBnbPrice: config.incentiveFallbackBnbPrice,
-    ledgerFilePath: config.incentiveLedgerPath,
-    genesisTokenId: config.scarletTokenId,
-  };
-  const incentiveService = new IncentiveService(
-    incentiveConfig,
-    blockchain,
-    blockchain.hotWallet
-  );
-
   app.use(
     "/api/v1/vote",
     createVoteRouter(config, blockchain, queue, eip712, relayerDaemon)
   );
 
-  const proposalService = new ProposalService(blockchain, config, incentiveService);
+  const proposalService = new ProposalService(blockchain, config);
   app.use("/api/v1/proposals", createProposalsRouter(blockchain, config, proposalService));
   app.use("/api/v1/mesh", createMeshRouter(config, blockchain));
-  app.use("/api/v1/incentives", createIncentivesRouter(incentiveService));
-
-  // Auto-reward incentive on batch settlement if criteria met (automatic agent payout)
-  relayerDaemon.on("batchSettled", async (_result: any, batch: any[]) => {
-    if (!incentiveService || !batch) return;
-    for (const vote of batch) {
-      if (vote.signer && vote.tokenId) {
-        try {
-          const claimRes = await incentiveService.claimReward(vote.signer, vote.tokenId);
-          if (claimRes.success) {
-            console.log(`[RelayerDaemon] Auto-rewarded agent ${vote.signer} (#${vote.tokenId}) with $0.15 in BNB! Tx: ${claimRes.claimRecord?.txHash}`);
-          }
-        } catch {
-          // Silently ignore ineligible or already claimed
-        }
-      }
-    }
-  });
 
   // Spec & Agent Manifest Discovery Router
   const specRouter = createSpecRouter(config, blockchain, eip712);
@@ -259,7 +223,6 @@ export function createServer(customConfig?: Partial<ServerConfig>): ServerInstan
     eip712,
     relayerDaemon,
     handshakeDaemon,
-    incentiveService,
     startDaemons,
     stopDaemons,
   };

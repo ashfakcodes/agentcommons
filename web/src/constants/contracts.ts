@@ -6,6 +6,7 @@ export const BSC_CONFIG = {
   currencySymbol: 'BNB',
   blockExplorerUrl: 'https://bscscan.com',
   testnetExplorerUrl: 'https://bscscan.com',
+  rpcUrl: 'https://bsc-dataseed.binance.org/',
 };
 
 // Official SPACE ID Agent ID Registrar (BSC Mainnet)
@@ -138,6 +139,39 @@ export const PARLIAMENT_ABI = [
       { name: 'successfulVotes', type: 'uint256' },
       { name: 'failedVotes', type: 'uint256' }
     ]
+  },
+  {
+    type: 'function',
+    name: 'proposals',
+    stateMutability: 'view',
+    inputs: [{ name: '', type: 'uint256' }],
+    outputs: [
+      { name: 'startBlock', type: 'uint32' },
+      { name: 'endBlock', type: 'uint32' },
+      { name: 'snapshotBlock', type: 'uint32' },
+      { name: 'forVotes', type: 'uint32' },
+      { name: 'againstVotes', type: 'uint32' },
+      { name: 'abstainVotes', type: 'uint32' },
+      { name: 'status', type: 'uint8' },
+      { name: 'createdAt', type: 'uint48' }
+    ]
+  },
+  {
+    type: 'function',
+    name: 'hasTokenVoted',
+    stateMutability: 'view',
+    inputs: [
+      { name: '', type: 'uint256' },
+      { name: '', type: 'uint256' }
+    ],
+    outputs: [{ name: '', type: 'bool' }]
+  },
+  {
+    type: 'function',
+    name: 'nonces',
+    stateMutability: 'view',
+    inputs: [{ name: '', type: 'uint256' }],
+    outputs: [{ name: '', type: 'uint256' }]
   }
 ] as const;
 
@@ -170,5 +204,32 @@ export const MESH_ABI = [
     stateMutability: 'view',
     inputs: [{ name: '', type: 'uint256' }],
     outputs: [{ name: '', type: 'uint32' }]
+  },
+  {
+    type: 'function',
+    name: 'meshOperators',
+    stateMutability: 'view',
+    inputs: [{ name: '', type: 'uint256' }],
+    outputs: [{ name: '', type: 'address' }]
+  },
+  {
+    type: 'function',
+    name: 'isEdgeConnected',
+    stateMutability: 'view',
+    inputs: [
+      { name: '_tokenIdA', type: 'uint256' },
+      { name: '_tokenIdB', type: 'uint256' }
+    ],
+    outputs: [{ name: '', type: 'bool' }]
+  }
+] as const;
+
+export const SPACE_ID_REGISTRAR_ABI = [
+  {
+    type: 'function',
+    name: 'ownerOf',
+    stateMutability: 'view',
+    inputs: [{ name: 'tokenId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'address' }]
   }
 ] as const;

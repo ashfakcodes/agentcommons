@@ -20,11 +20,7 @@ export interface ServerConfig {
   maxBatchSize: number;
   queueFlushThreshold: number;
   mockMode: boolean;
-  incentiveEnabled: boolean;
-  incentiveMaxUsers: number;
-  incentiveRewardUsd: number;
-  incentiveFallbackBnbPrice: number;
-  incentiveLedgerPath: string;
+  relayerStatePath?: string;
 }
 
 const parseHexAddress = (val: string | undefined, defaultVal: string): `0x${string}` => {
@@ -60,11 +56,7 @@ export const config: ServerConfig = {
   maxBatchSize: parseInt(process.env.MAX_BATCH_SIZE || "50", 10),
   queueFlushThreshold: parseInt(process.env.QUEUE_FLUSH_THRESHOLD || "20", 10),
   mockMode: process.env.MOCK_MODE === "true" || !process.env.BSC_RPC_URL || process.env.BSC_RPC_URL.includes("localhost"),
-  incentiveEnabled: process.env.INCENTIVE_ENABLED === "true",
-  incentiveMaxUsers: parseInt(process.env.INCENTIVE_MAX_USERS || "42", 10),
-  incentiveRewardUsd: parseFloat(process.env.INCENTIVE_REWARD_USD || "0.15"),
-  incentiveFallbackBnbPrice: parseFloat(process.env.INCENTIVE_FALLBACK_BNB_PRICE || "650"),
-  incentiveLedgerPath: process.env.INCENTIVE_LEDGER_PATH || "./data/incentives-ledger.json",
+  relayerStatePath: process.env.RELAYER_STATE_PATH || "./data/relayer-state.json",
 };
 
 /**

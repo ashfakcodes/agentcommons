@@ -27,6 +27,7 @@ import {
   MeshNode,
   ProposalStatus,
   ProposalView,
+  VoteReceiptRecord,
 } from "../types/index.js";
 
 export interface IBlockchainClient {
@@ -181,10 +182,22 @@ interface PersistedRelayerState {
   proposalMetadata?: Record<string, { title: string; description: string }>;
   ownerIndex?: Record<string, { tokenId: string; name: string }>;
   seenVotes?: string[];
-  seenProposals?: Record<string, { creator: string; tokenId?: string }>;
+  seenProposals?: Record<string, { creator: string; tokenId?: string; txHash?: string }>;
+  proposalVoteReceipts?: Record<string, VoteReceiptRecord[]>;
   nodes?: MeshNode[];
   edges?: MeshEdge[];
 }
+
+const KNOWN_MAINNET_PROPOSAL_TXS: Record<string, string> = {
+  "0xc1bd22ec6e5454bf34fee4547546159ce10fcc82:1": "0xeb5684b50f46cd402f08f19c70b64c6c3c373b6d7c0395f5d4f0f28255b534da",
+  "0xc1bd22ec6e5454bf34fee4547546159ce10fcc82:2": "0xb140dc4e85d5677cac0a79dd60fbb7f4597515255b26a398a01ddcc5fb39f785",
+  "0xc1bd22ec6e5454bf34fee4547546159ce10fcc82:3": "0xbf278fec41c2e997aad477e1219e0f2d7387ca9ff979a35b05d3c7caccc1e16f",
+  "0xc1bd22ec6e5454bf34fee4547546159ce10fcc82:4": "0x9695f2afc68308c33a3060f973638d8f316136d3ab373150840b1f7d6b1b880b",
+  "0xd3061bea5ad846d1e8aec3de18ead4f5a53e305f:1": "0x6bf35c17b5cc6ec40414b3a3d9138189ef2565f9f271ddb542f1d6609ebd86ef",
+  "0xd3061bea5ad846d1e8aec3de18ead4f5a53e305f:2": "0x08d5ead4f38b81c14286af02ffb1c19475124dc5756087444d2cfd0aaf346701",
+  "0xd3061bea5ad846d1e8aec3de18ead4f5a53e305f:3": "0x3e8afe378737ec516374379c41f20b4b4bcd33da7f2c809155a42de1d03668e0",
+  "0xd3061bea5ad846d1e8aec3de18ead4f5a53e305f:4": "0x456a48de10fb35ec4fe80d365de3e58dda861873f698ba24a829d06be3780bee",
+};
 
 // -----------------------------------------------------------------------------
 // Live BSC Blockchain Client
@@ -205,7 +218,8 @@ export class LiveBlockchainClient implements IBlockchainClient {
   private tokenNames = new Map<string, string>();
   private ownerToAgent = new Map<string, { tokenId: string; name: string }>();
   private seenVotes = new Set<string>();
-  private seenProposals = new Map<string, { creator: string; tokenId?: string }>();
+  private seenProposals = new Map<string, { creator: string; tokenId?: string; txHash?: string }>();
+  private proposalVoteReceipts = new Map<string, VoteReceiptRecord[]>();
   private lastSyncedBlocks = new Map<string, bigint>();
   private lastSyncedBlock = 0n;
   private lastSyncAt = 0;
@@ -236,7 +250,7 @@ export class LiveBlockchainClient implements IBlockchainClient {
     this.hotWallet = new HotWalletManager(config);
     this.account = privateKeyToAccount(config.scarletPrivateKey);
     const chain = config.chainId === 97 ? bscTestnet : bsc;
-    this.stateFilePath = path.resolve(path.dirname(config.incentiveLedgerPath || "./data/incentives-ledger.json"), "relayer-state.json");
+    this.stateFilePath = path.resolve(config.relayerStatePath || "./data/relayer-state.json");
 
     this.publicClient = createPublicClient({
       chain,
@@ -450,6 +464,13 @@ export class LiveBlockchainClient implements IBlockchainClient {
           }
         }
       }
+      if (parsed.proposalVoteReceipts) {
+        for (const [pk, list] of Object.entries(parsed.proposalVoteReceipts)) {
+          if (Array.isArray(list)) {
+            this.proposalVoteReceipts.set(pk.toLowerCase(), list.slice(0, 10));
+          }
+        }
+      }
       if (Array.isArray(parsed.nodes)) {
         for (const n of parsed.nodes) {
           if (n?.tokenId) {
@@ -490,6 +511,7 @@ export class LiveBlockchainClient implements IBlockchainClient {
         ownerIndex: Object.fromEntries(this.ownerToAgent.entries()),
         seenVotes: Array.from(this.seenVotes),
         seenProposals: Object.fromEntries(this.seenProposals.entries()),
+        proposalVoteReceipts: Object.fromEntries(this.proposalVoteReceipts.entries()),
         nodes: Array.from(this.knownNodes.values()),
         edges: Array.from(this.knownEdges.values()),
       };
@@ -590,6 +612,18 @@ export class LiveBlockchainClient implements IBlockchainClient {
     return node;
   }
 
+  private recordVoteReceipt(proposalKey: string, receipt: VoteReceiptRecord): void {
+    if (!receipt.txHash) return;
+    const existing = this.proposalVoteReceipts.get(proposalKey) || [];
+    const deduped = existing.filter(
+      (r) => !(r.txHash.toLowerCase() === receipt.txHash.toLowerCase() && r.tokenId === receipt.tokenId)
+    );
+    const updated = [receipt, ...deduped]
+      .sort((a, b) => b.blockNumber - a.blockNumber)
+      .slice(0, 10);
+    this.proposalVoteReceipts.set(proposalKey, updated);
+  }
+
   public async registerDiscoveredAgent(
     tokenId: bigint,
     owner?: `0x${string}`,
@@ -600,6 +634,7 @@ export class LiveBlockchainClient implements IBlockchainClient {
       title?: string;
       description?: string;
       capabilities?: number;
+      txHash?: string;
     }
   ): Promise<void> {
     const node = await this.ensureDiscoveredNode(tokenId, owner, activity?.capabilities ?? 7);
@@ -617,12 +652,15 @@ export class LiveBlockchainClient implements IBlockchainClient {
     if (activity?.createdProposalId !== undefined) {
       const pKey = this.scopeProposalKey(activity.createdProposalId);
       const prev = this.seenProposals.get(pKey);
-      if (!prev || !prev.tokenId) {
+      if (!prev || !prev.tokenId || (activity.txHash && !prev.txHash)) {
         this.seenProposals.set(pKey, {
           creator: node.owner,
           tokenId: tokenId.toString(),
+          txHash: activity.txHash || prev?.txHash,
         });
-        node.proposalsCount = (node.proposalsCount || 0) + 1;
+        if (!prev || !prev.tokenId) {
+          node.proposalsCount = (node.proposalsCount || 0) + 1;
+        }
       }
       if (activity.title && activity.description) {
         const metaEntry = {
@@ -775,16 +813,27 @@ export class LiveBlockchainClient implements IBlockchainClient {
 
         const activeClient = this.logClients[this.activeLogClientIndex] || this.publicClient;
 
-        // Index VoteCast -> discovers any agent who voted on-chain + owner mapping
+        // Index VoteCast -> discovers any agent who voted on-chain + owner mapping + tx receipts
         for (const log of allVoteLogs) {
           const pId = BigInt(log.args.proposalId);
           const tId = BigInt(log.args.tokenId);
           const voter = log.args.voter as `0x${string}`;
+          const support = Number(log.args.support ?? 1);
           const node = await this.ensureDiscoveredNode(tId, voter);
           const voteKey = this.scopeVoteKey(pId, tId);
           if (!this.seenVotes.has(voteKey)) {
             this.seenVotes.add(voteKey);
             node.votesCount = (node.votesCount || 0) + 1;
+          }
+          if (log.transactionHash) {
+            this.recordVoteReceipt(this.scopeProposalKey(pId), {
+              tokenId: tId.toString(),
+              voter,
+              voterName: node.name,
+              support,
+              txHash: log.transactionHash,
+              blockNumber: Number(log.blockNumber ?? 0),
+            });
           }
         }
 
@@ -813,14 +862,15 @@ export class LiveBlockchainClient implements IBlockchainClient {
             } catch {}
           }
 
+          const creationTxHash = log.transactionHash || existingProp?.txHash;
           if (creatorTokenId) {
             const node = await this.ensureDiscoveredNode(BigInt(creatorTokenId), creator);
             if (!validExistingTokenId) {
               node.proposalsCount = (node.proposalsCount || 0) + 1;
             }
-            this.seenProposals.set(pKey, { creator, tokenId: creatorTokenId });
-          } else if (!existingProp || existingProp.creator?.toLowerCase() !== creator.toLowerCase()) {
-            this.seenProposals.set(pKey, { creator });
+            this.seenProposals.set(pKey, { creator, tokenId: creatorTokenId, txHash: creationTxHash });
+          } else if (!existingProp || existingProp.creator?.toLowerCase() !== creator.toLowerCase() || (creationTxHash && !existingProp.txHash)) {
+            this.seenProposals.set(pKey, { creator, txHash: creationTxHash });
           }
         }
 
@@ -845,6 +895,7 @@ export class LiveBlockchainClient implements IBlockchainClient {
               isMutual: false,
               capabilityMask: 1,
               establishedAt: ts,
+              txHash: log.transactionHash || prevEdge?.txHash,
             });
           }
         }
@@ -859,6 +910,7 @@ export class LiveBlockchainClient implements IBlockchainClient {
           ]);
           const minTid = tidA < tidB ? tidA : tidB;
           const maxTid = tidA < tidB ? tidB : tidA;
+          const prevEdge = this.knownEdges.get(edgeKey);
           this.knownEdges.set(edgeKey, {
             edgeKey,
             nodeA: minTid.toString(),
@@ -866,6 +918,7 @@ export class LiveBlockchainClient implements IBlockchainClient {
             isMutual: true,
             capabilityMask: 1,
             establishedAt: Math.floor(Date.now() / 1000),
+            txHash: log.transactionHash || prevEdge?.txHash,
           });
         }
 
@@ -1051,6 +1104,9 @@ export class LiveBlockchainClient implements IBlockchainClient {
         agentByOwner?.name ||
         (creatorTokenId ? this.knownNodes.get(creatorTokenId)?.name || this.tokenNames.get(creatorTokenId) : undefined);
 
+      const creationTxHash = seenProp?.txHash || KNOWN_MAINNET_PROPOSAL_TXS[scopedKey];
+      const recentVoteReceipts = this.proposalVoteReceipts.get(scopedKey) || [];
+
       return {
         id: proposalId.toString(),
         title,
@@ -1070,6 +1126,9 @@ export class LiveBlockchainClient implements IBlockchainClient {
         status: statusMap[statusCode] || "Unknown",
         statusCode,
         createdAt,
+        contractAddress: targetAddress,
+        creationTxHash,
+        recentVoteReceipts,
       };
     } catch {
       return null;
@@ -1186,14 +1245,29 @@ export class LiveBlockchainClient implements IBlockchainClient {
           const settledEvent = parseAbiItem(
             "event BatchVotesSettled(uint256 indexed proposalId, uint256 successfulVotes, uint256 failedVotes)"
           );
+          const voteCastEvent = parseAbiItem(
+            "event VoteCast(uint256 indexed proposalId, uint256 indexed tokenId, address indexed voter, uint8 support)"
+          );
           const decoded = decodeEventLog({
-            abi: [settledEvent],
+            abi: [settledEvent, voteCastEvent],
             data: log.data,
             topics: log.topics,
           });
           if (decoded.eventName === "BatchVotesSettled") {
             successfulVotes = Number((decoded.args as any).successfulVotes);
             failedVotes = Number((decoded.args as any).failedVotes);
+          } else if (decoded.eventName === "VoteCast") {
+            const vArgs = decoded.args as any;
+            const vTid = BigInt(vArgs.tokenId).toString();
+            const vNode = this.knownNodes.get(vTid);
+            this.recordVoteReceipt(this.scopeProposalKey(BigInt(vArgs.proposalId)), {
+              tokenId: vTid,
+              voter: String(vArgs.voter),
+              voterName: vNode?.name || this.tokenNames.get(vTid),
+              support: Number(vArgs.support),
+              txHash: hash,
+              blockNumber: Number(receipt.blockNumber ?? 0),
+            });
           }
         }
       } catch {}
@@ -1282,6 +1356,7 @@ export class LiveBlockchainClient implements IBlockchainClient {
         contentCidHash,
         title: _title,
         description: _description,
+        txHash: hash,
       });
     } else {
       this.invalidateCache();
@@ -1433,6 +1508,7 @@ export class LiveBlockchainClient implements IBlockchainClient {
       isMutual: isMutual || Boolean(prevEdge?.isMutual),
       capabilityMask: capabilities,
       establishedAt: Math.floor(Date.now() / 1000),
+      txHash: hash,
     });
 
     await Promise.allSettled([
@@ -1486,6 +1562,7 @@ export class LiveBlockchainClient implements IBlockchainClient {
               isMutual: true,
               capabilityMask: capabilities,
               establishedAt: nowSec,
+              txHash: hash,
             });
             settledPeers.push(tidA === myTokenId ? tidB : tidA);
           }

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Vote, PlusCircle, CheckCircle2, XCircle, Filter, Sparkles, ExternalLink, ChevronDown } from 'lucide-react';
+import { Vote, PlusCircle, CheckCircle2, XCircle, Filter, Sparkles, ExternalLink, ChevronDown, ShieldCheck } from 'lucide-react';
 import { Proposal, AgentNode, SupportType } from '../types';
 import { VoteModal } from './VoteModal';
 import { CreateProposalModal } from './CreateProposalModal';
-import { PARLIAMENT_ADDRESS, BSC_CONFIG } from '../constants/contracts';
+import { SignatureVerifierModal } from './SignatureVerifierModal';
+import { PARLIAMENT_ADDRESS, LEGACY_PARLIAMENT_ADDRESS, BSC_CONFIG } from '../constants/contracts';
 
 const MAX_CARD_DESCRIPTION_CHARS = 280;
 
@@ -185,6 +186,129 @@ const ProposalCreatorBadges: React.FC<{ proposal: Proposal }> = ({ proposal }) =
   );
 };
 
+const ProposalOnChainProof: React.FC<{
+  proposal: Proposal;
+  onOpenVerifier: (proposal: Proposal) => void;
+}> = ({ proposal, onOpenVerifier }) => {
+  const [open, setOpen] = useState(false);
+  const contractAddr =
+    proposal.contractAddress || (proposal.isLegacy ? LEGACY_PARLIAMENT_ADDRESS : PARLIAMENT_ADDRESS);
+  const receipts = proposal.recentVoteReceipts || [];
+
+  return (
+    <div className="mt-2 pt-2 border-t border-white/5 font-mono text-[11px]">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen((prev) => !prev)}
+          className="inline-flex items-center gap-1.5 text-[#8fa3b8] hover:text-[#e5e4e2] transition-colors"
+        >
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" aria-hidden="true" />
+          <span>{open ? 'Hide On-Chain Proof' : 'On-Chain Proof & BscScan Receipts'}</span>
+          <ChevronDown
+            className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`}
+            aria-hidden="true"
+          />
+        </button>
+
+        <div className="flex items-center gap-2">
+          {proposal.creationTxHash && (
+            <a
+              href={`${BSC_CONFIG.blockExplorerUrl}/tx/${proposal.creationTxHash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-cyan-400 hover:underline"
+              title="View ProposalCreated transaction on BscScan"
+            >
+              <span>Creation Tx</span>
+              <ExternalLink className="w-3 h-3" aria-hidden="true" />
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={() => onOpenVerifier(proposal)}
+            className="text-[#F0B90B] hover:underline"
+          >
+            Verify RPC
+          </button>
+        </div>
+      </div>
+
+      {open && (
+        <div className="mt-2 p-2.5 rounded bg-[#050505] border border-[#8fa3b8]/20 space-y-2 text-[11px]">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[#8fa3b8]">
+            <div>
+              Contract:{' '}
+              <a
+                href={`${BSC_CONFIG.blockExplorerUrl}/address/${contractAddr}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-cyan-400 hover:underline"
+              >
+                {contractAddr.slice(0, 8)}...{contractAddr.slice(-6)}
+              </a>
+            </div>
+            <div>
+              Snapshot / Window:{' '}
+              <span className="text-[#e5e4e2]">
+                #{proposal.snapshotBlock || 0} ({proposal.startBlock}→{proposal.endBlock})
+              </span>
+            </div>
+          </div>
+
+          <div className="text-[#8fa3b8] truncate">
+            CID Hash: <span className="text-[#e5e4e2]">{proposal.contentCidHash}</span>
+          </div>
+
+          {receipts.length > 0 ? (
+            <div className="space-y-1 pt-1 border-t border-white/5">
+              <div className="text-[10px] uppercase tracking-wider text-[#8fa3b8]">
+                Recent On-Chain VoteCast Receipts
+              </div>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {receipts.map((r, idx) => (
+                  <div
+                    key={`${r.txHash}-${r.tokenId}-${idx}`}
+                    className="flex items-center justify-between gap-2 text-[10px]"
+                  >
+                    <span className="text-[#e5e4e2] truncate">
+                      {r.voterName || `#${r.tokenId.slice(0, 8)}`} •{' '}
+                      <span
+                        className={
+                          r.support === 1
+                            ? 'text-emerald-400'
+                            : r.support === 0
+                              ? 'text-rose-400'
+                              : 'text-[#8fa3b8]'
+                        }
+                      >
+                        {r.support === 1 ? 'FOR' : r.support === 0 ? 'AGAINST' : 'ABSTAIN'}
+                      </span>
+                    </span>
+                    <a
+                      href={`${BSC_CONFIG.blockExplorerUrl}/tx/${r.txHash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-cyan-400 hover:underline shrink-0"
+                    >
+                      <span>{r.txHash.slice(0, 8)}...</span>
+                      <ExternalLink className="w-2.5 h-2.5" aria-hidden="true" />
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-[10px] text-[#8fa3b8]/70">
+              Use &ldquo;Verify RPC&rdquo; to query live block-height tallies &amp; EIP-712 proofs directly from BSC Mainnet.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 interface ParliamentViewProps {
   proposals: Proposal[];
   activeAgent: AgentNode;
@@ -199,6 +323,8 @@ export const ParliamentView: React.FC<ParliamentViewProps> = ({
   onCreateProposal,
 }) => {
   const [selectedProposal, setSelectedProposal] = useState<Proposal | null>(null);
+  const [verifierProposal, setVerifierProposal] = useState<Proposal | null>(null);
+  const [isVerifierOpen, setIsVerifierOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isArchiveOpen, setIsArchiveOpen] = useState(false);
   const [filterCategory, setFilterCategory] = useState<string>('All');
@@ -260,6 +386,19 @@ export const ParliamentView: React.FC<ParliamentViewProps> = ({
             <span>Submit Proposal</span>
           </button>
 
+          <button
+            type="button"
+            onClick={() => {
+              setVerifierProposal(activeProposals[0] || proposals[0] || null);
+              setIsVerifierOpen(true);
+            }}
+            className="flex items-center gap-1.5 min-h-[44px] md:min-h-0 px-3 py-2 md:px-2.5 md:py-1.5 rounded border border-[#F0B90B]/30 bg-[#F0B90B]/5 text-xs font-mono text-[#F0B90B] hover:bg-[#F0B90B]/10 transition-colors"
+            title="Verify on-chain BSC contract state & EIP-712 signatures"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            <span>Verify On-Chain</span>
+          </button>
+
           <a
             href={`${BSC_CONFIG.blockExplorerUrl}/address/${PARLIAMENT_ADDRESS}`}
             target="_blank"
@@ -267,7 +406,7 @@ export const ParliamentView: React.FC<ParliamentViewProps> = ({
             className="flex items-center gap-1 min-h-[44px] md:min-h-0 px-3 py-2 md:px-2.5 md:py-1.5 rounded border border-white/10 text-xs text-[#8fa3b8] hover:text-[#e5e4e2] transition-colors"
             title="View Parliament Contract on BscScan"
           >
-            <span>Contract</span>
+            <span>Parliament {PARLIAMENT_ADDRESS.slice(0, 6)}...{PARLIAMENT_ADDRESS.slice(-4)}</span>
             <ExternalLink className="w-3 h-3 text-cyan-400 shrink-0" aria-hidden="true" />
           </a>
         </div>
@@ -302,6 +441,13 @@ export const ParliamentView: React.FC<ParliamentViewProps> = ({
                     <p className="item-title">{proposal.title}</p>
                     <ProposalDescription description={proposal.description} title={proposal.title} />
                     <ProposalVoteStats proposal={proposal} />
+                    <ProposalOnChainProof
+                      proposal={proposal}
+                      onOpenVerifier={(prop) => {
+                        setVerifierProposal(prop);
+                        setIsVerifierOpen(true);
+                      }}
+                    />
                   </div>
 
                   {/* Footer: Proposer Badge & Vote Modal Trigger */}
@@ -430,6 +576,13 @@ export const ParliamentView: React.FC<ParliamentViewProps> = ({
                         <p className="item-title">{proposal.title}</p>
                         <ProposalDescription description={proposal.description} title={proposal.title} />
                         <ProposalVoteStats proposal={proposal} isConcluded />
+                        <ProposalOnChainProof
+                          proposal={proposal}
+                          onOpenVerifier={(prop) => {
+                            setVerifierProposal(prop);
+                            setIsVerifierOpen(true);
+                          }}
+                        />
                       </div>
 
                       {/* Footer: Author & Archived Status */}
@@ -480,6 +633,15 @@ export const ParliamentView: React.FC<ParliamentViewProps> = ({
             onCreateProposal(newProp);
             setIsCreateModalOpen(false);
           }}
+        />
+      )}
+
+      {/* Live On-Chain & EIP-712 Verifier Modal */}
+      {isVerifierOpen && (
+        <SignatureVerifierModal
+          initialProposal={verifierProposal}
+          defaultTokenId={activeAgent.tokenId}
+          onClose={() => setIsVerifierOpen(false)}
         />
       )}
     </div>

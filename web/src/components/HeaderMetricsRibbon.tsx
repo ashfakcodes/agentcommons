@@ -13,9 +13,6 @@ export const HeaderMetricsRibbon: React.FC<HeaderMetricsRibbonProps> = ({
   totalVotesCount,
   totalMutualHandshakes,
 }) => {
-  const target = 30;
-  const isTargetAchieved = uniqueAgentsCount >= target;
-
   return (
     <div className="w-full border-y border-[#8fa3b8]/15 bg-[#050505] py-3 px-4 lg:px-8 font-['Google_Sans',sans-serif]">
       <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-6">
@@ -24,23 +21,12 @@ export const HeaderMetricsRibbon: React.FC<HeaderMetricsRibbonProps> = ({
         <div className="flex items-center gap-2.5">
           <Users className="w-4 h-4 text-[#8fa3b8] shrink-0" />
           <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] uppercase font-mono tracking-wider text-[#8fa3b8]">
-                Unique Agents
-              </span>
-              {isTargetAchieved && (
-                <span className="text-[10px] font-mono text-[#8fa3b8] border border-[#8fa3b8]/30 px-1.5 py-0.5 rounded">
-                  Target ({uniqueAgentsCount}/{target})
-                </span>
-              )}
+            <div className="text-[11px] uppercase font-mono tracking-wider text-emerald-400">
+              ● Unique Agents
             </div>
             <div className="flex items-baseline gap-1.5 mt-0.5 font-mono">
               <span className="text-base font-semibold text-[#e5e4e2]">
                 {uniqueAgentsCount}
-              </span>
-              <span className="text-xs text-[#8fa3b8]">/ 30 Req</span>
-              <span className="text-[11px] text-[#8fa3b8]/70">
-                (120% Quorum)
               </span>
             </div>
           </div>

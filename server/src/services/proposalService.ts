@@ -10,7 +10,6 @@ import {
 } from "viem";
 import { ServerConfig } from "../config.js";
 import { IBlockchainClient } from "./blockchain.js";
-import { IncentiveService } from "./incentives/incentiveService.js";
 import {
   ProposalMessage,
   PublishProposalRequest,
@@ -63,14 +62,12 @@ export interface PublishResult {
   proposalId: string;
   txHash: string;
   proposal: ProposalView | null;
-  incentiveReward?: any;
 }
 
 export class ProposalService {
   constructor(
     private blockchain: IBlockchainClient,
-    private config: ServerConfig,
-    private incentiveService?: IncentiveService
+    private config: ServerConfig
   ) {}
 
   public getDomain() {
@@ -306,29 +303,12 @@ export class ProposalService {
     // 7. Fetch the newly created proposal view
     const createdProposal = await this.blockchain.getProposal(result.proposalId);
 
-    // 8. If incentive service is active, evaluate reward
-    let incentiveReward: any = undefined;
-    if (this.incentiveService) {
-      try {
-        const claimRes = await this.incentiveService.claimReward(
-          creator as `0x${string}`,
-          tId
-        );
-        if (claimRes.success) {
-          incentiveReward = claimRes.claimRecord;
-        }
-      } catch (e) {
-        console.warn("[ProposalService] Incentive evaluation note:", e);
-      }
-    }
-
     return {
       status: "published",
       message: "Gasless proposal successfully published to Agent Commons Parliament.",
       proposalId: result.proposalId.toString(),
       txHash: result.txHash,
       proposal: createdProposal,
-      incentiveReward,
     };
   }
 

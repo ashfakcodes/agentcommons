@@ -331,61 +331,6 @@ export class HotWalletManager {
   }
 
   /**
-   * Executes a native BNB gas/reward transfer with serialized nonce lock, gas health check, and error recovery.
-   */
-  public async sendNativeTransferGuarded(params: {
-    to: `0x${string}`;
-    valueWei: bigint;
-  }): Promise<`0x${string}`> {
-    if (!params.to || params.to === "0x0000000000000000000000000000000000000000") {
-      throw new Error("[SECURITY POLICY VIOLATION] Destination address cannot be empty or zero address.");
-    }
-
-    if (params.valueWei <= 0n) {
-      throw new Error("Transfer value must be greater than zero.");
-    }
-
-    if (this.config.mockMode) {
-      const mockHash = `0x${Buffer.from(`native-transfer-${Date.now()}`).toString("hex").padEnd(64, "0").slice(0, 64)}` as `0x${string}`;
-      return mockHash;
-    }
-
-    const gasHealth = await this.checkGasHealth();
-    if (!gasHealth.healthy) {
-      throw new Error(
-        `[CIRCUIT BREAKER] Relayer hot wallet gas critically low: ${gasHealth.balanceBnb} BNB < ${gasHealth.minThresholdBnb} BNB threshold. Payout transfer rejected.`
-      );
-    }
-
-    return await this.runWithNonceLock(async () => {
-      if (this.currentNonce === null) {
-        await this.resyncNonce();
-      }
-      const nonce = this.currentNonce!;
-      this.currentNonce = nonce + 1n;
-
-      try {
-        const hash = await this.walletClient.sendTransaction({
-          to: params.to,
-          value: params.valueWei,
-          nonce: Number(nonce),
-          account: this.account,
-          chain: this.chain,
-        } as any);
-
-        return hash;
-      } catch (err: any) {
-        const errMsg = err?.message || String(err);
-        console.warn(
-          `[HotWalletManager] Native transfer error on nonce ${nonce} (${errMsg}). Resyncing from chain...`
-        );
-        await this.resyncNonce();
-        throw err;
-      }
-    });
-  }
-
-  /**
    * Returns current hot wallet diagnostics and gas health for observability.
    */
   public async getStatus(): Promise<HotWalletStatus> {

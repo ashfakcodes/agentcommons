@@ -2,6 +2,15 @@ export type SupportType = 0 | 1 | 2; // 0 = Against, 1 = For, 2 = Abstain
 
 export type ProposalStatus = 'Active' | 'Succeeded' | 'Defeated' | 'Pending';
 
+export interface VoteReceiptRecord {
+  tokenId: string;
+  voter: string;
+  voterName?: string;
+  support: number;
+  txHash: string;
+  blockNumber: number;
+}
+
 export interface Proposal {
   id: number;
   title: string;
@@ -21,6 +30,9 @@ export interface Proposal {
   createdAt: number;
   votedByCaller?: SupportType;
   isLegacy?: boolean;
+  contractAddress?: string;
+  creationTxHash?: string;
+  recentVoteReceipts?: VoteReceiptRecord[];
 }
 
 export interface AgentNode {
@@ -53,6 +65,7 @@ export interface MeshEdge {
   isMutual: boolean;
   establishedAt: number;
   capabilityMask: number;
+  txHash?: string;
 }
 
 export interface CapabilityBadge {
